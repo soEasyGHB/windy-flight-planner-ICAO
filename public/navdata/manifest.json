@@ -1,1 +1,11 @@
-{"status":"empty","warning":"Upload raw files and run build-navdata"}
+{
+  "status": "ready",
+  "generated_utc": "2026-10-27T15:38:29.154082+00:00",
+  "airac_cycle": "2610",
+  "points": 262562,
+  "airway_segments": 121957,
+  "skipped_airway_segments": 10,
+  "source": "User-supplied X-Plane navdata (Google Drive public folder (processed by GitHub Actions); verify license and AIRAC)",
+  "source_sha256": "c73050e85f8b399a5fe973da6e5a51162debca61cfbeaada9a5b4598c793c2ff",
+  "warning": "Visualization only; no direction/altitude/NOTAM validation or certified navigation"
+}
