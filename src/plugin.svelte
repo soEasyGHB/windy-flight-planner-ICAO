@@ -41,9 +41,6 @@
     В Route Planner можно передать только самый длинный непрерывный участок, а GPX сохранит все доступные участки раздельно, без соединения разрывов. Это НЕ полный IFR-маршрут.
     <details><summary>Диагностика экспорта</summary><ul>{#each routeIssues(parsed) as issue}<li>{issue}</li>{/each}</ul></details></div>
   {/if}
-  {#if parsed && parsed.ambiguous.length}
-    <label class="info"><input type="checkbox" bind:checked={acceptAmbiguousFixes} /> Я проверил координаты неоднозначных точек: {parsed.ambiguous.join(', ')}. Разрешить экспорт для визуализации (не для IFR-навигации).</label>
-  {/if}
   {#if plannerUrl}<p class="info"><a href={plannerUrl} target="_blank" rel="noopener noreferrer">Открыть подготовленную ссылку в Safari → Windy Route Planner</a></p>{/if}
   <p class="small">Одна кнопка передаёт геометрию трасс штатному Route Planner по ссылке Windy. Если передача не поддерживается приложением iPad или маршрут слишком длинный, используй GPX. ETD и TAS задаются выше; штатный Route Planner может потребовать повторно выбрать дату UTC, IFR и скорость (450 kt по умолчанию) — публичная ссылка передаёт только координаты.</p>
   <p class="small">Время на нижней шкале Windy устанавливается по UTC. ETA расчётное: расстояние / TAS, без ветровой поправки.</p>
@@ -202,7 +199,6 @@
   let plannerUrl='';
   let routeExportWarning='';
   let canExportRoute=false;
-  let acceptAmbiguousFixes=false;
   $: {
     const r=parsed;
     routeExportWarning=!r?'сначала построй маршрут':
@@ -210,7 +206,6 @@
       r.gaps.length?`разрывы: ${r.gaps.map(g=>g.from+'–'+g.to).join(', ')}`:
       r.unresolved.length?`неизвестные точки: ${r.unresolved.join(', ')}`:
       r.airwayNames.length?`неразвёрнутые ATS: ${r.airwayNames.join(', ')}`:
-      r.ambiguous.length&&!acceptAmbiguousFixes?`требуют подтверждения координат: ${r.ambiguous.join(', ')}`:
       r.segments.length!==1?'нет единого подтверждённого участка': '';
     canExportRoute=!!r&&!routeExportWarning;
 
@@ -242,9 +237,9 @@
     }
     lines=[];markers=[];
   };
-  const clearRoute=()=>{clearMap();routeText='';parsed=null;plannerUrl='';labeledCount=0;weather=[];profileOpen=false;acceptAmbiguousFixes=false;status='Маршрут очищен';};
+  const clearRoute=()=>{clearMap();routeText='';parsed=null;plannerUrl='';labeledCount=0;weather=[];profileOpen=false;status='Маршрут очищен';};
   function runRoute():void {
-    clearMap();weather=[];profileOpen=false;plannerUrl='';acceptAmbiguousFixes=false;parsed=parseRoute(routeText);
+    clearMap();weather=[];profileOpen=false;plannerUrl='';parsed=parseRoute(routeText);
     const safeSegments=parsed.segments.filter(s=>s.length>=2);
     const namedFixes=mapLabelPoints(parsed);
     labeledCount=0;
@@ -368,10 +363,10 @@
       status='Проверь дату/время вылета UTC и TAS (100–700 kt)'; return;
     }
     try {
-      if(parsed.ambiguous.length&&!acceptAmbiguousFixes)throw Error('Неоднозначные точки: '+parsed.ambiguous.join(', ')+'. Сначала проверь координаты и отметь подтверждение.');
       const full=!parsed.gaps.length&&!parsed.unresolved.length&&!parsed.airwayNames.length&&parsed.segments.length===1;
-      const link=full ? buildWindyPlannerLink(parsed,3500,acceptAmbiguousFixes)
-        : buildPartialWindyPlannerLink(parsed,3500,acceptAmbiguousFixes);
+      // Use the parser-selected coordinates automatically; ambiguity remains visible.
+      const link=full ? buildWindyPlannerLink(parsed,3500,true)
+        : buildPartialWindyPlannerLink(parsed,3500,true);
       plannerUrl=link.url;
       // Best effort sync before page navigation. URL itself does not encode ETD/TAS.
       syncWindyTimestamp(date,false);
@@ -389,9 +384,8 @@
   function downloadPlannerGpx():void {
     if(!parsed){status='Сначала построй маршрут';return;}
     try {
-      if(parsed.ambiguous.length&&!acceptAmbiguousFixes)throw Error('Неоднозначные FIX: '+parsed.ambiguous.join(', ')+'. Проверь координаты и отметь подтверждение.');
       const partial=!canExportRoute;
-      const content=makeRouteGpx(parsed,{allowPartial:partial,acceptAmbiguous:acceptAmbiguousFixes});
+      const content=makeRouteGpx(parsed,{allowPartial:partial,acceptAmbiguous:true});
       const filename=partial?'windy-route-PARTIAL.gpx':'windy-flight-route.gpx';
       const file=new File([content],filename,{type:'application/gpx+xml'});
       // Share Sheet enables Save to Files on iPad, where synthetic <a download>
