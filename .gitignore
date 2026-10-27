@@ -7,3 +7,7 @@ icao-export/
 !tests/*.csv
 
 tests/generated/
+
+# These two files must be public, generated via GitHub Actions
+!public/navdata/points.csv
+!public/navdata/airways.csv

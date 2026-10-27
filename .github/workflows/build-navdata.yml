@@ -1,0 +1,36 @@
+name: build-navdata
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'navdata-input/*.dat'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: build-navdata-main
+  cancel-in-progress: false
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Convert navigation files
+        run: python tools/build_navdata.py
+      - name: Commit generated CSV files to GitHub
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f public/navdata/points.csv public/navdata/airways.csv public/navdata/manifest.json
+          if git diff --cached --quiet; then
+            echo 'No changes in generated files'
+            exit 0
+          fi
+          git commit -m 'Update GitHub navigation snapshot'
+          git push origin HEAD:main

@@ -105,6 +105,73 @@ export async function loadOpenSources(onProgress?: (s:string)=>void): Promise<vo
   if(err.length) onProgress?.('Недоступны источники: ' + err.map(x=>String(x.reason)).join('; '));
   onProgress?.(`Готово: ${totalPoints().toLocaleString('ru-RU')} точек; источников ${sourcesLoaded}/${EXTERNAL.length}`);
 }
+/** Resolve an HTTPS URL for public navdata stored in this GitHub repository.
+ * Paste https://github.com/OWNER/REPO (main) or .../tree/BRANCH.
+ * No tokens, proxies, Vercel or GitHub Pages required. Public GitHub only.
+ */
+export function githubNavdataFolder(repoUrl: string):string {
+  const root = new URL(repoUrl.trim());
+  if (root.protocol !== 'https:' || root.hostname !== 'github.com')
+    throw Error('Вставьте ссылку https://github.com/USER/REPO (публичный репозиторий)');
+  const bits = root.pathname.split('/').filter(Boolean);
+  if (bits.length < 2 || (bits.length > 2 && (bits.length !== 4 || bits[2] !== 'tree')))
+    throw Error('Нужна ссылка на репозиторий GitHub или на его ветку /tree/main');
+  const [owner, repository] = bits;
+  const branch = bits.length === 4 ? bits[3] : 'main';
+  if (![owner, repository, branch].every(x => /^[a-z0-9_.-]+$/i.test(x)))
+    throw Error('Неподдерживаемый формат GitHub owner/repository/branch');
+  return `https://raw.githubusercontent.com/${owner}/${repository}/${branch}/public/navdata/`;
+}
+/** Local X-Plane snapshot: converts entirely in the browser; nothing is uploaded.
+ * This source takes preference over older demo/open data when a waypoint is duplicated. */
+export function loadLocalXPlaneSnapshot(pointsCsv:string,airwaysCsv:string):{points:number;airwayVertices:number} {
+  if(!pointsCsv.startsWith('ident,latitude_deg,longitude_deg,type') || !airwaysCsv.startsWith('airway,segment,seq,latitude_deg,longitude_deg'))
+    throw Error('Неверный формат навигационного конвертера');
+  // Do not destroy the currently loaded snapshot until the headers were checked.
+  for(const [key,arr] of DB) {
+    const keep=arr.filter(p=>p.source!=='local X-Plane');
+    if(keep.length) DB.set(key,keep); else DB.delete(key);
+  }
+  AIRWAYS.clear();
+  const points=importCsv(pointsCsv,'local X-Plane');
+  const airwayVertices=importAirwaysCsv(airwaysCsv);
+  return {points,airwayVertices};
+}
+/** Link to GitHub's own file uploader, not an unauthorized upload from the Windy browser. */
+export function githubUploadUrl(repoUrl:string):string {
+  const u=new URL(repoUrl.trim());
+  githubNavdataFolder(repoUrl); // validates origin/owner/repo/branch
+  const parts=u.pathname.split('/').filter(Boolean);
+  const branch=parts[2]==='tree'?parts[3]:'main';
+  return `https://github.com/${parts[0]}/${parts[1]}/upload/${branch}/navdata-input`;
+}
+/** Fetch generated CSV directly from a PUBLIC GitHub repository. */
+export async function loadGithubSnapshot(repoUrl: string):Promise<{points:number; airwayVertices:number; cycle:string; generated:string}> {
+  const base=githubNavdataFolder(repoUrl);
+  // Cache-bust so a recent upload is not masked by a previous browser cache.
+  const stamp=Date.now();
+  const fetchFile=(name:string)=>fetch(`${base}${name}?v=${stamp}`,{cache:'no-store'});
+  const [metaRes,pRes,aRes]=await Promise.all([
+    fetchFile('manifest.json'),fetchFile('points.csv'),fetchFile('airways.csv')
+  ]);
+  if(!metaRes.ok||!pRes.ok||!aRes.ok)
+    throw Error('GitHub не отдал navdata-файлы. Проверьте Public, ветку main и статус Actions/build-navdata');
+  const meta=await metaRes.json();
+  if(meta.status!=='ready')throw Error('База пока не подготовлена: загрузите три earth_*.dat и проверьте Actions/build-navdata');
+  const [points,airways]=await Promise.all([pRes.text(),aRes.text()]);
+  if(!points.startsWith('ident,latitude_deg,longitude_deg,type')||!airways.startsWith('airway,segment,seq,latitude_deg,longitude_deg'))
+    throw Error('CSV из GitHub имеет неверный формат; предыдущая база сохранена');
+  // Replace only points from the hosted source; leave other open sources intact.
+  for(const [key,arr] of DB) {
+    const kept=arr.filter(p=>p.source!=='GitHub navdata');
+    if(kept.length)DB.set(key,kept);else DB.delete(key);
+  }
+  AIRWAYS.clear();
+  const num=importCsv(points,'GitHub navdata');
+  const vertices=importAirwaysCsv(airways);
+  return {points:num,airwayVertices:vertices,cycle:String(meta.airac_cycle||'не указан'),generated:String(meta.generated_utc||'')};
+}
+
 export function importAirwaysCsv(contents:string):number {
   const rows=csvRows(contents.replace(/^\uFEFF/,''));if(rows.length<2)throw Error('CSV воздушных трасс пуст');
   const h=rows[0],ai=column(h,['airway','route','route_name','route_designator']),si=column(h,['segment','segment_id','part','line_id']),qi=column(h,['seq','sequence','order','vertex']),li=column(h,['latitude_deg','latitude','lat']),lo=column(h,['longitude_deg','longitude','lon']);
@@ -207,7 +274,8 @@ export function parseRoute(text:string):ParsedRoute {
       unresolved.push(item);continue;
     }
     const prev=points[points.length-1];
-    const sorted=prev ? [...options].sort((a,b)=>nm(prev,a)-nm(prev,b)) : options;
+    const priority=(p:NavPoint)=>p.source==='local X-Plane'?0:p.source==='GitHub navdata'?1:2;
+    const sorted=prev ? [...options].sort((a,b)=>{const da=nm(prev,a),db=nm(prev,b);return Math.abs(da-db)<20?priority(a)-priority(b):da-db;}) : [...options].sort((a,b)=>priority(a)-priority(b));
     const chosen=sorted[0];
     if(options.length>1 && (!prev || (sorted.length>1 && Math.abs(nm(prev,sorted[0])-nm(prev,sorted[1]))<80))) ambiguous.push(item);
     if(pendingAirway && prev) {

@@ -77,13 +77,30 @@
     <p class="small">* Индикаторы по упрощённым порогам: T от −20 до 0 °C и RH ≥80% (условия возможного обледенения); ветер ≥100 kt; CAPE &gt;1000 J/kg; разница скорости ветра ≥35 kt между соседними уровнями. Это <b>НЕ</b> прогноз фактического обледенения, CAT/турбулентности, гроз по трассе или опасных явлений по ICAO. Для решений используйте SIGMET, значимые карты, AIP, NOTAM и утверждённые источники.</p>
   {/if}
   <hr />
-  <h3>Навигационная база</h3>
+  <h3>Навигационная база X-Plane 11/12</h3>
+  <p class="small">Прямой импорт на iPad: выберите сразу <code>earth_fix.dat</code>, <code>earth_nav.dat</code> и <code>earth_awy.dat</code> <b>из одного AIRAC</b>. Файлы остаются на устройстве, в GitHub не отправляются. После перезагрузки вкладки импорт повторяется.</p>
+  <label for="xplane-files">Добавить три файла X-Plane</label>
+  <input id="xplane-files" type="file" accept=".dat,text/plain" multiple on:change={selectXPlaneFiles}/>
+  <div class="btnrow"><button class="primary" type="button" disabled={busy || selectedXplaneFiles.length<3} on:click={importXPlane}>Импортировать X-Plane в Windy</button></div>
+  {#if xplaneCycle}<p class="info">Локальный AIRAC: {xplaneCycle}; он не хранится на сервере Windy.</p>{/if}
+  {#if xplaneWarnings.length}<p class="warning">{xplaneWarnings.join(' · ')}</p>{/if}
+  <hr />
+  <h3>Общая база через GitHub (необязательно)</h3>
+  <label for="github-navdata">Ссылка на публичный GitHub-репозиторий (один раз)</label>
+  <input id="github-navdata" type="url" bind:value={navdataUrl} placeholder="https://github.com/USER/windy-flight-planner" />
+  <div class="btnrow">
+    <button type="button" on:click={openGitHubUpload}>Открыть загрузку файлов GitHub</button>
+    <button type="button" disabled={busy} class="primary" on:click={updateHosted}>Обновить базу из GitHub</button>
+  </div>
+  <p class="small">При загрузке файла в GitHub нужно войти в свой аккаунт и подтвердить Commit changes. Браузерный плагин не может безопасно публиковать файлы в репозиторий без отдельной авторизации. GitHub Actions создаёт CSV, затем нажми «Обновить базу из GitHub». Чтобы читать CSV без токена, репозиторий должен быть публичным.</p>
+  <p class="warning">Не загружай платные или персонально лицензированные X-Plane/Navigraph/Jeppesen файлы в публичный GitHub без разрешения правообладателя. Для таких данных используй локальный импорт выше.</p>
+
   <p class="small">{pointTotal.toLocaleString('ru-RU')} записей · открытые источники: {loadedSources}/3 · импортировано: {imported} · трасс: {airways}. Загрузка открытых источников выполняется в браузере; интернет и CORS обязательны.</p>
   <label>Добавить собственный CSV навигационных точек</label>
   <input type="file" accept=".csv,text/csv" on:change={importFile}/>
   <p class="small">CSV: <code>ident,latitude_deg,longitude_deg,type</code> или экспорт воздушных трасс <code>airway,segment,seq,latitude_deg,longitude_deg</code>. Для GeoPackage (.gpkg) есть конвертер. Соблюдайте лицензию ICAO.</p>
   <button type="button" on:click={reloadSources}>Перезагрузить открытые данные</button>
-  <p class="small">OurAirports (общественное достояние) + aviation-waypoints (MIT), неполная и несертифицированная база. США: FAA-полноту не гарантируем; воздушные трассы и SID/STAR не разворачиваются. Обновление AIRAC и проверка даты данных не реализованы.</p>
+  <p class="small">Открытые дополнительные источники неполные. X-Plane: геометрия ATS сегментов, без проверки направлений, высотных ограничений, действительности трассы, SID/STAR, NOTAM. Проверка AIRAC — только совпадение заголовков трёх файлов, не проверка актуальности.</p>
 </section>
 <script lang="ts">
   import bcast from '@windy/broadcast';
@@ -92,12 +109,18 @@
   import { map } from '@windy/map';
   import store from '@windy/store';
   import { onMount,onDestroy } from 'svelte';
-  import {loadDemo,loadOpenSources,importCsv,importAirwaysCsv,airwayCount,parseRoute,totalPoints,sourceCount,userPointCount} from './navdb';
+  import {loadDemo,loadOpenSources,importCsv,importAirwaysCsv,airwayCount,parseRoute,totalPoints,sourceCount,userPointCount,loadGithubSnapshot,loadLocalXPlaneSnapshot,githubUploadUrl} from './navdb';
+  import {convertXPlane} from './xplane';
   import {generateSamples,loadWeather,flLevel,PRESSURES} from './weather';
   import type {ParsedRoute} from './navdb';
   import type {WeatherRow} from './weather';
   let routeText='EHAM DCT EDDF DCT LTFM DCT OMDB';
   let status='Загрузка базы ещё не началась';
+  let navdataUrl='';
+  let xplaneCycle='';
+  let xplaneWarnings:string[]=[];
+  let selectedXplaneFiles:File[]=[];
+  let uploadLink='';
   let parsed:ParsedRoute|null=null;
   let lines:L.Polyline[]=[];
   let markers:L.Marker[]=[];
@@ -132,6 +155,49 @@
     const level=String(flLevel(Number(fl)))+'h';
     const okLevel=store.set('level',level as any);
     status=`Windy: ${overlay}, ${model}, ${level}` + ((!okLevel)?' (уровень для этого слоя/модели может быть недоступен)':'') + ((!okOverlay)?' (слой может быть недоступен)':'') + ((!okModel)?' (модель может быть недоступна)':'');
+  }
+  async function updateHosted():Promise<void> {
+    if(!navdataUrl.trim()) {status='Вставьте ссылку на публичный GitHub-репозиторий';return;}
+    busy=true;
+    try {
+      status='Загрузка навигационной базы напрямую из GitHub…';
+      const result=await loadGithubSnapshot(navdataUrl);
+      try {localStorage.setItem('windy-flight-navdata-url',navdataUrl.trim());} catch(_) {}
+      pointTotal=totalPoints();airways=airwayCount();
+      runRoute();
+      status=`GitHub: +${result.points} точек, ${result.airwayVertices} вершин трасс, AIRAC ${result.cycle}, опубликовано ${result.generated||'неизвестно'}`;
+    } catch(e) {status='Ошибка базы GitHub: '+String(e);}
+    finally {busy=false;}
+  }
+  function selectXPlaneFiles(event:Event):void {
+    selectedXplaneFiles=Array.from((event.currentTarget as HTMLInputElement).files||[]);
+    status=selectedXplaneFiles.length?`Выбрано ${selectedXplaneFiles.length}/3 файлов: ${selectedXplaneFiles.map(f=>f.name).join(', ')}`:'Файлы X-Plane не выбраны';
+  }
+  async function importXPlane():Promise<void> {
+    const names=['earth_fix.dat','earth_nav.dat','earth_awy.dat'];
+    const lookup=new Map(selectedXplaneFiles.map(f=>[f.name.toLowerCase(),f]));
+    const missing=names.filter(n=>!lookup.has(n));
+    if(missing.length){status='Не хватает файлов: '+missing.join(', ')+' (нужны все три одного AIRAC)';return;}
+    busy=true;
+    try {
+      status='Чтение X-Plane: сначала проверяем AIRAC и координаты…';
+      const [fix,nav,awy]=await Promise.all(names.map(n=>lookup.get(n)!.text()));
+      const result=convertXPlane({fix,nav,awy});
+      status='Конвертация завершена; загрузка точек и трасс в карту…';
+      const counts=loadLocalXPlaneSnapshot(result.pointsCsv,result.airwaysCsv);
+      xplaneCycle=result.cycle;
+      xplaneWarnings=result.warnings;
+      pointTotal=totalPoints();airways=airwayCount();runRoute();
+      status=`X-Plane AIRAC ${result.cycle}: ${counts.points.toLocaleString('ru-RU')} новых точек, ${result.airwayEdges.toLocaleString('ru-RU')} участков трасс; ошибок сегментов: ${result.rejectedEdges}.`;
+    } catch(error){status='Ошибка импорта X-Plane: '+String(error);}
+    finally {busy=false;}
+  }
+  function openGitHubUpload():void {
+    try {
+      uploadLink=githubUploadUrl(navdataUrl);
+      window.open(uploadLink,'_blank','noopener,noreferrer');
+      status='Открыта страница загрузки GitHub. Выберите три earth_*.dat, затем Commit changes.';
+    } catch(e){status='Укажите адрес репозитория GitHub: '+String(e);}
   }
   async function reloadSources():Promise<void>{
     busy=true;
@@ -168,7 +234,11 @@
     a.href=u;a.download='flight-weather-prototype.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);
   }
   export const onopen=()=>{if(parsed?.points.length)runRoute();};
-  onMount(()=>{loadDemo();pointTotal=totalPoints();runRoute();reloadSources();});
+  onMount(()=>{
+    loadDemo();pointTotal=totalPoints();runRoute();
+    try {navdataUrl=localStorage.getItem('windy-flight-navdata-url')||'';} catch(_) {}
+    (async()=>{await reloadSources();if(navdataUrl)await updateHosted();})();
+  });
   onDestroy(()=>{clearMap();});
 </script>
 <style lang="less">

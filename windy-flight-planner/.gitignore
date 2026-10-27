@@ -1,9 +1,0 @@
-node_modules/
-dist/
-icao-export/
-*.gpkg
-*.xlsx
-*.csv
-!tests/*.csv
-
-tests/generated/
