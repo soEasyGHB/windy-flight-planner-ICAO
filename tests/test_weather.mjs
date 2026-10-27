@@ -38,3 +38,28 @@ try{
   assert.ok(Number.isFinite(fetched[0].atFl.isaDeviationC));
   console.log('PASS: forecast response parsing, wind, ISA deviation and tropopause rows');
 } finally {globalThis.fetch=origFetch;}
+
+// v0.7.2: forecast positions exactly follow named OFP fixes, not synthetic S1/S2.
+const {generateWaypointSamples,cellAtFlightLevel,CRUISE_FL_LEVELS}=await import('./generated/weather.js');
+const mk=(ident,lat,lon,showLabel=true)=>({ident,lat,lon,type:showLabel?'FIX':'ATS',source:'test',showLabel});
+const routePoints=[mk('TOGMO',50,30),mk('M56-2',49.9,30.1,false),mk('M56-3',49.8,30.2,false),mk('ABAGI',49.7,30.3),mk('NIMTA',49.6,30.4)];
+const named=generateWaypointSamples(routePoints,dep,450);
+assert.deepEqual(named.map(s=>s.label),['TOGMO','ABAGI','NIMTA']);
+assert.ok(named[1].distanceNm>0);
+assert.ok(named[2].eta>named[1].eta);
+assert.deepEqual([...CRUISE_FL_LEVELS],[300,310,320,330,340,350,360,370,380,390,400]);
+const f300=cellAtFlightLevel(fetchedTestLevels(),300);
+const f350=cellAtFlightLevel(fetchedTestLevels(),350);
+assert.ok(f300.temp!==null && f350.temp!==null);
+assert.ok(f350.windKt!==null && f350.windKt>0);
+assert.ok(f350.isaDeviationC!==null);
+function fetchedTestLevels(){
+  const levels={};
+  for(const p of PRESSURES)levels[p]={temp:-45,windKt:80,windDir:270,rh:30,cloud:20,cape:0,geopotentialM:10000,isaDeviationC:5,indicators:[]};
+  return levels;
+}
+const wrapLevels=fetchedTestLevels();
+wrapLevels[250].windDir=359;wrapLevels[200].windDir=1;
+const dir=cellAtFlightLevel(wrapLevels,360).windDir;
+assert.ok(dir===0||dir===359||dir===1,`Wind direction wrap ${dir}`);
+console.log('PASS: every named waypoint ETA, no synthetic S1/S2; FL300–400 interpolation');

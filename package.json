@@ -1,6 +1,6 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "module",
   "description": "Windy route planner using navdata uploaded and converted on GitHub; no file upload in Windy",
   "main": "dist/plugin.min.js",
