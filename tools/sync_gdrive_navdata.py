@@ -98,7 +98,7 @@ def sync(fetch=True, download_dir=None):
         incoming.mkdir(parents=True, exist_ok=True)
         if fetch:
             print('Downloading shared Google Drive folder via gdown...')
-            subprocess.run([sys.executable, '-m', 'gdown', url, '-O', str(incoming)], check=True, timeout=900)
+            subprocess.run([sys.executable, '-m', 'gdown', '--folder', url, '-O', str(incoming)], check=True, timeout=900)
         stage = work/'navdata'
         stage.mkdir()
         stage_files(incoming, stage)
