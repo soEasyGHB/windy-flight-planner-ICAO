@@ -1,6 +1,6 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "description": "Private Windy plugin for route drawing, navdata CSV import and experimental pressure-level meteorology",
   "main": "dist/plugin.min.js",

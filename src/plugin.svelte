@@ -10,11 +10,12 @@
   </div>
   <p class="info" aria-live="polite">{status}</p>
   {#if parsed}
-    <div class="stats"><b>{parsed.points.length}</b> найдено точек · <b>{Math.round(parsed.distanceNm)} NM</b> (ортодромия между точками)</div>
+    <div class="stats"><b>{parsed.points.length}</b> найдено точек · <b>{Math.round(parsed.distanceNm)} NM</b> (только подтверждённые участки)</div>
     {#if parsed.unresolved.length}<p class="warning">Неизвестные точки: {parsed.unresolved.join(', ')}. Линия неполная; не используйте её как маршрут.</p>{/if}
     {#if parsed.expandedAirways.length}<p class="info">Развёрнуты по импортированной геометрии ATS: {parsed.expandedAirways.join(', ')} (проверьте AIRAC/ограничения).</p>{/if}
-    {#if parsed.airwayNames.length}<p class="warning">Трассы {parsed.airwayNames.join(', ')} пока НЕ разворачиваются в промежуточные точки. Нарисованы прямые между заданными точками.</p>{/if}
+    {#if parsed.airwayNames.length}<p class="warning">Трассы {parsed.airwayNames.join(', ')} пока НЕ разворачиваются в промежуточные точки. Неподтверждённые участки НЕ соединяются линией.</p>{/if}
     {#if parsed.ambiguous.length}<p class="warning">Повторяющиеся идентификаторы: {parsed.ambiguous.join(', ')}. Координаты выбраны приблизительно; проверьте.</p>{/if}
+    {#if parsed.gaps.length}<p class="warning">Разрывы маршрута ({parsed.gaps.length}): {parsed.gaps.map(g=>`${g.from} → ${g.to}: ${g.reason} (${Math.round(g.distanceNm)} NM)`).join(' · ')}. Эти отрезки не отображаются и не входят в расчёт погоды.</p>{/if}
     {#if parsed.points.length > 0}
       <details><summary>Координаты по маршруту ({parsed.points.length})</summary>
         <div class="scrolltable"><table><thead><tr><th>Точка</th><th>Lat</th><th>Lon</th><th>Источник</th></tr></thead><tbody>
@@ -49,7 +50,7 @@
     <div><label>Условная TAS, kt</label><input type="number" min="100" max="700" bind:value={tas} /></div>
   </div>
   <div class="btnrow">
-    <button type="button" class="primary" disabled={busy || !parsed || parsed.points.length<2} on:click={analyze}>Анализ по высотам</button>
+    <button type="button" class="primary" disabled={busy || !parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0} on:click={analyze}>Анализ по высотам</button>
     <button type="button" disabled={!weather.length} on:click={downloadWeather}>CSV отчёт</button>
   </div>
   {#if weather.length}
@@ -139,16 +140,22 @@
   const clearRoute=()=>{clearMap();routeText='';parsed=null;weather=[];status='Маршрут очищен';};
   function runRoute():void {
     clearMap();weather=[];parsed=parseRoute(routeText);
-    if(parsed.points.length<2){status='Для построения нужны не менее 2 известных координат';return;}
-    const coords=parsed.points.map(p=>[p.lat,p.lon] as [number,number]);
-    const route = new L.Polyline(coords,{color:'#ff853b',weight:4,opacity:.95,dashArray:parsed.airwayNames.length?'9 6':undefined}).addTo(map);
-    lines.push(route);
-    for(const p of parsed.points){
-      const icon=new L.DivIcon({html:`<span class="fr-waypoint">${p.ident}</span>`,className:'fr-label-icon',iconSize:[90,20],iconAnchor:[5,10]});
-      markers.push(new L.Marker([p.lat,p.lon],{icon}).addTo(map));
+    const safeSegments=parsed.segments.filter(s=>s.length>=2);
+    if(!safeSegments.length){status='Нет непрерывных проверенных участков. Проверь X-Plane базу, точки и ATS-трассы.';return;}
+    const visibleCoords:[number,number][]=[];
+    const displayed=new Set<number>();
+    for(const segment of safeSegments){
+      const coords=segment.map(p=>[p.lat,p.lon] as [number,number]);
+      visibleCoords.push(...coords);
+      lines.push(new L.Polyline(coords,{color:'#ff853b',weight:4,opacity:.95}).addTo(map));
+      for(const p of segment)if(!displayed.has(p.index)){
+        displayed.add(p.index);
+        const icon=new L.DivIcon({html:`<span class="fr-waypoint">${p.ident}</span>`,className:'fr-label-icon',iconSize:[90,20],iconAnchor:[5,10]});
+        markers.push(new L.Marker([p.lat,p.lon],{icon}).addTo(map));
+      }
     }
-    try {map.fitBounds(coords,{padding:[25,25],maxZoom:8});} catch(_e) {map.setView(coords[0],5);}
-    status=`Построено ${parsed.points.length} точек · ${Math.round(parsed.distanceNm)} NM. Не подтверждает ATS-маршрут.`;
+    try {map.fitBounds(visibleCoords,{padding:[25,25],maxZoom:8});} catch(_e) {map.setView(visibleCoords[0],5);}
+    status=`Построены только непрерывные участки: ${Math.round(parsed.distanceNm)} NM, разрывов ${parsed.gaps.length}. Не подтверждает ATS-маршрут.`;
   }
   function setWeatherLayer():void {
     const okModel=store.set('product',model as any);
@@ -257,7 +264,7 @@
     catch(e){status='Импорт не выполнен: '+String(e);}
   }
   async function analyze():Promise<void>{
-    if(!parsed || parsed.points.length<2)return;
+    if(!parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0){status="Анализ недоступен: маршрут содержит неподтверждённые участки";return;}
     const date=new Date(etdValue+'Z');
     if(Number.isNaN(date.getTime())||!(tas>0)){status='Проверьте ETD UTC и TAS';return;}
     busy=true;weather=[];

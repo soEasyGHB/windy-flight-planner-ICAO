@@ -2,7 +2,8 @@
 // ICAO licensed dataset is NOT bundled. Import licensed exports only where permitted.
 export type NavPoint = { ident: string; lat: number; lon: number; type: string; source: string };
 export type RoutePoint = NavPoint & { index: number };
-export type ParsedRoute = { points: RoutePoint[]; unresolved: string[]; skipped: string[]; airwayNames: string[]; expandedAirways: string[]; ambiguous: string[]; distanceNm: number };
+export type RouteGap = { from: string; to: string; distanceNm: number; reason: string };
+export type ParsedRoute = { points: RoutePoint[]; segments: RoutePoint[][]; gaps: RouteGap[]; unresolved: string[]; skipped: string[]; airwayNames: string[]; expandedAirways: string[]; ambiguous: string[]; distanceNm: number };
 export type AirwayVertex = { airway:string; segment:string; seq:number; lat:number; lon:number };
 const AIRWAYS:Map<string,Map<string,AirwayVertex[]>>=new Map();
 export function airwayCount():number {return AIRWAYS.size;}
@@ -250,42 +251,148 @@ function coordFix(token:string):NavPoint|null {
   if(m) {const lat=Number(m[2])+Number(m[3])/60,lon=Number(m[5])+Number(m[6])/60;return {ident:token,lat:m[1]==='S'?-lat:lat,lon:m[4]==='W'?-lon:lon,type:'COORD',source:'route'};}
   return null;
 }
-export function parseRoute(text:string):ParsedRoute {
-  // Does not reconstruct SID/STAR. AIRWAY geometry is expanded only after CSV import.
-  const raw=text.toUpperCase().replace(/[\n\r,;]+/g,' ').split(/\s+/).filter(Boolean);
-  const points:RoutePoint[]=[],unresolved:string[]=[],skipped:string[]=[],airwayNames:string[]=[],expandedAirways:string[]=[],ambiguous:string[]=[];
-  let distanceNm=0,pendingAirway:string|null=null;
-  const append=(p:NavPoint)=>{
-    const prev=points[points.length-1];
-    if(prev && nm(prev,p)<.01)return;
-    if(prev)distanceNm+=nm(prev,p);
-    points.push({...p,index:points.length});
-  };
-  for(let item of raw) {
-    if(item.includes('/')) item=item.split('/')[0];
-    if(!item || ['DCT','IFR','VFR','DEP','ARR','NIL'].includes(item) || /^(-|\+)$/.test(item) || /^FL\d{2,3}$/.test(item) || /^[FASM]\d{3,4}$/.test(item) || /^N\d{4}F\d{3}$/.test(item)) { skipped.push(item);continue; }
-    const literal=coordFix(item);
-    const options=literal?[literal]:(DB.get(item)??[]);
-    if(options.length===0) {
-      if(AIRWAYS.has(item)||/^(?:[A-Z]{1,2}\d{1,5}[A-Z]?|[A-Z]\d{1,4}[A-Z]?)$/.test(item)) {
-        if(pendingAirway)airwayNames.push(pendingAirway);
-        pendingAirway=item;continue;
-      }
-      unresolved.push(item);continue;
-    }
-    const prev=points[points.length-1];
-    const priority=(p:NavPoint)=>p.source==='local X-Plane'?0:p.source==='GitHub navdata'?1:2;
-    const sorted=prev ? [...options].sort((a,b)=>{const da=nm(prev,a),db=nm(prev,b);return Math.abs(da-db)<20?priority(a)-priority(b):da-db;}) : [...options].sort((a,b)=>priority(a)-priority(b));
-    const chosen=sorted[0];
-    if(options.length>1 && (!prev || (sorted.length>1 && Math.abs(nm(prev,sorted[0])-nm(prev,sorted[1]))<80))) ambiguous.push(item);
-    if(pendingAirway && prev) {
-      const expanded=expandAirway(pendingAirway,prev,chosen);
-      if(expanded){for(const p of expanded)append(p);expandedAirways.push(pendingAirway);}
-      else airwayNames.push(pendingAirway);
-    }
-    pendingAirway=null;
-    append(chosen);
+/** Always classify ATS designators by their route POSITION before looking up
+ * same-named navaids/fixes in the world database. A bare N50 or UT54 must not
+ * teleport the flight to an American navaid called N50 or UT54. */
+function airwayDesignator(token:string):boolean {
+  return AIRWAYS.has(token) || /^[A-Z]{1,2}\d{1,5}[A-Z]?$/.test(token);
+}
+function sourceCost(point:NavPoint):number {
+  return point.source==='local X-Plane'?0:point.source==='GitHub navdata'?2:25;
+}
+function uniqueCandidates(candidates:NavPoint[]):NavPoint[] {
+  const out:NavPoint[]=[];
+  for(const p of [...candidates].sort((a,b)=>sourceCost(a)-sourceCost(b))) {
+    if(!out.some(q=>nm(p,q)<0.6))out.push(p);
   }
-  if(pendingAirway)airwayNames.push(pendingAirway);
-  return {points,unresolved:[...new Set(unresolved)],skipped,airwayNames:[...new Set(airwayNames)],expandedAirways:[...new Set(expandedAirways)],ambiguous:[...new Set(ambiguous)],distanceNm};
+  return out;
+}
+const airwayProximityCache=new Map<string,boolean>();
+function onAirway(airway:string, point:NavPoint):boolean {
+  const parts=AIRWAYS.get(airway);
+  if(!parts)return false;
+  const key=`${airway}|${point.lat.toFixed(5)}|${point.lon.toFixed(5)}`;
+  if(airwayProximityCache.has(key))return airwayProximityCache.get(key)!;
+  let found=false;
+  outer:for(const segment of parts.values())for(const vertex of segment) {
+    if(Math.abs(vertex.lat-point.lat)>0.6 || Math.abs(vertex.lon-point.lon)>1.2)continue;
+    if(nm(vertex,point)<=25){found=true;break outer;}
+  }
+  airwayProximityCache.set(key,found);
+  return found;
+}
+/** Contextual route resolver: minimizes distance over the ENTIRE sequence, not
+ * just the preceding fix. Incomplete/implausible legs are never drawn across
+ * continents. The result is for VISUALIZATION, not certified IFR navigation. */
+export function parseRoute(text:string):ParsedRoute {
+  const raw=text.toUpperCase().replace(/[\n\r,;]+/g,' ').split(/\s+/).filter(Boolean).map(x=>x.split('/')[0]);
+  const unresolved:string[]=[],skipped:string[]=[],airwayNames:string[]=[],expandedAirways:string[]=[],ambiguous:string[]=[];
+  const gaps:RouteGap[]=[],points:RoutePoint[]=[],segments:RoutePoint[][]=[];
+  type FixToken={ident:string;options:NavPoint[];via:string|null;direct:boolean;broken:boolean};
+  const tokens:FixToken[]=[];
+  let via:string|null=null, direct=false, broken=false;
+  const ignored=new Set(['DCT','IFR','VFR','DEP','ARR','NIL']);
+  for(let index=0;index<raw.length;index++) {
+    const item=raw[index];
+    if(!item)continue;
+    if(item==='DCT') {if(via){airwayNames.push(via);broken=true;}via=null;direct=true;continue;}
+    if(ignored.has(item)||/^(?:FL\d{2,3}|[FASM]\d{3,4}|N\d{4}F\d{3}|[-+])$/.test(item)) {skipped.push(item);continue;}
+    // ATS designation between two fixes is an airway even when a DB entry
+    // happens to share its identifier. Prefer position over identifier alone.
+    const next=raw[index+1]??'';
+    const followsPoint=(!!coordFix(next) || (DB.get(next)?.length??0)>0 || (next.length>=3 && /^[A-Z]{3,6}$/.test(next)));
+    if(airwayDesignator(item) && tokens.length>0 && followsPoint) {
+      if(via){airwayNames.push(via);broken=true;}
+      via=item;direct=false;continue;
+    }
+    const literal=coordFix(item),options=literal?[literal]:uniqueCandidates(DB.get(item)??[]);
+    if(!options.length) {unresolved.push(item);broken=true;continue;}
+    tokens.push({ident:item,options,via,direct,broken});
+    via=null;direct=false;broken=false;
+  }
+  if(via)airwayNames.push(via);
+  if(!tokens.length)return {points,segments,gaps,unresolved:[...new Set(unresolved)],skipped,airwayNames:[...new Set(airwayNames)],expandedAirways,ambiguous,distanceNm:0};
+  // Viterbi / dynamic programming; strongly penalize over-ocean shortcuts where
+  // there is no explicit coordinate/DCT. A local X-Plane fix is a PREFERENCE,
+  // but never a reason to accept a transcontinental jump.
+  const cost:number[][]=[];
+  const back:number[][]=[];
+  for(let i=0;i<tokens.length;i++) {
+    cost[i]=[];back[i]=[];
+    for(let j=0;j<tokens[i].options.length;j++) {
+      const candidate=tokens[i].options[j];
+      const origin=sourceCost(candidate);
+      if(i===0){cost[i][j]=origin;back[i][j]=-1;continue;}
+      const t=tokens[i],prev=tokens[i-1];
+      let best=Infinity,bestIndex=0;
+      for(let k=0;k<prev.options.length;k++) {
+        const p=prev.options[k],d=nm(p,candidate);
+        let transition= t.broken ? 0 : d;
+        const limit=t.direct?1600:950;
+        if(!t.broken && d>limit)transition+=20000+(d-limit)*15;
+        if(!t.broken && t.via && AIRWAYS.has(t.via)) {
+          transition+=(onAirway(t.via,p)&&onAirway(t.via,candidate))?-120:1600;
+        }
+        const value=cost[i-1][k]+transition+origin;
+        if(value<best){best=value;bestIndex=k;}
+      }
+      cost[i][j]=best;back[i][j]=bestIndex;
+    }
+  }
+  const choices=new Array<number>(tokens.length);
+  choices[choices.length-1]=cost[cost.length-1].indexOf(Math.min(...cost[cost.length-1]));
+  for(let i=choices.length-1;i>0;i--)choices[i-1]=back[i][choices[i]];
+  const selected=tokens.map((t,i)=>t.options[choices[i]]);
+  // Record remaining ambiguities even if the global minimum is preferred.
+  for(let i=0;i<tokens.length;i++) if(tokens[i].options.length>1) {
+    const chosen=selected[i];
+    const prev=i>0?selected[i-1]:null,next=i+1<selected.length?selected[i+1]:null;
+    const score=(p:NavPoint)=>(prev&&!tokens[i].broken?nm(prev,p):0)+(next&&!tokens[i+1]?.broken?nm(p,next):0);
+    const alternate=tokens[i].options.filter(p=>p!==chosen).sort((a,b)=>score(a)-score(b))[0];
+    if(!prev||!next||(alternate && Math.abs(score(chosen)-score(alternate))<120))ambiguous.push(tokens[i].ident);
+  }
+  let distanceNm=0,segment:RoutePoint[]=[];
+  const begin=(p:NavPoint)=>{if(segment.length)segments.push(segment);segment=[];append(p);};
+  const append=(p:NavPoint)=>{
+    const prev=segment[segment.length-1];
+    if(prev&&nm(prev,p)<0.01)return;
+    if(prev)distanceNm+=nm(prev,p);
+    const r={...p,index:points.length};points.push(r);segment.push(r);
+  };
+  append(selected[0]);
+  for(let i=1;i<tokens.length;i++) {
+    const prev=selected[i-1],current=selected[i],t=tokens[i],d=nm(prev,current);
+    const limit=t.direct?1600:950;
+    if(t.broken) {
+      gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:'Между точками есть неизвестная запись'});
+      begin(current);continue;
+    }
+    if(d>limit) {
+      gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Подозрительно большой переход (> ${limit} NM)`});
+      begin(current);continue;
+    }
+    if(t.via) {
+      const expanded=expandAirway(t.via,prev,current);
+      if(!expanded) {
+        airwayNames.push(t.via);
+        gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Не подтверждена геометрия трассы ${t.via}`});
+        begin(current);continue;
+      }
+      // Verify EVERY edge of the expansion to prevent leaps in bad source CSV.
+      const path=[prev,...expanded,current];
+      if(path.some((p,k)=>k>0&&nm(path[k-1],p)>250)) {
+        airwayNames.push(t.via);
+        gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Повреждённая геометрия трассы ${t.via}`});
+        begin(current);continue;
+      }
+      for(const p of expanded)append(p);
+      expandedAirways.push(t.via);
+    }
+    append(current);
+  }
+  if(segment.length)segments.push(segment);
+  // A waypoint with no safe connection must not affect automatic map zoom.
+  return {points,segments,gaps,unresolved:[...new Set(unresolved)],skipped,
+    airwayNames:[...new Set(airwayNames)],expandedAirways:[...new Set(expandedAirways)],
+    ambiguous:[...new Set(ambiguous)],distanceNm};
 }

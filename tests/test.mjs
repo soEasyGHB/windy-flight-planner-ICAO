@@ -21,3 +21,18 @@ assert.equal(r.expandedAirways[0],'UL980');
 assert.ok(r.points.length>=3);
 assert.ok(r.distanceNm>0);
 console.log('PASS: parsing, CSV, route, airway expansion, great-circle geometry');
+// Regression: an airway token with a same-named USA navaid is NOT a waypoint.
+importCsv('ident,latitude_deg,longitude_deg,type\nTOGMO,50,40,FIX\nABAGI,50,42,FIX\nNIMTA,50,44,FIX\nMOLED,50,46,FIX\nLIDUS,50,48,FIX\nZG,50,50,FIX\nZG,40,-102,VOR\nITAKA,50,52,FIX\nN50,40,-100,VOR\nM56,41,-101,VOR\nB105,39,-99,VOR\nG242,37,-98,VOR\nUT54,36,-97,VOR\nSIV,50,54,FIX\nHISAR,50,56,FIX\n', 'local X-Plane');
+const testAwys='airway,segment,seq,latitude_deg,longitude_deg\nM56,m56,0,50,40\nM56,m56,1,50,42\nB105,b105,0,50,42\nB105,b105,1,50,44\nN50,n50,0,50,46\nN50,n50,1,50,48\nG242,g242,0,50,48\nG242,g242,1,50,50\nUT54,ut54,0,50,54\nUT54,ut54,1,50,56\n';
+importAirwaysCsv(testAwys);
+const eurasia=parseRoute('TOGMO M56 ABAGI B105 NIMTA DCT MOLED N50 LIDUS G242 ZG DCT ITAKA DCT SIV UT54 HISAR');
+assert.equal(eurasia.gaps.length,0);
+assert.deepEqual(eurasia.ambiguous,[]);
+assert.ok(eurasia.points.every(p=>p.lon>30 && p.lon<60));
+assert.ok(eurasia.points.every(p=>!['M56','B105','N50','G242','UT54'].includes(p.ident)));
+assert.ok(eurasia.distanceNm<1800);
+const oceanJump=parseRoute('TOGMO DCT KJFK DCT ABAGI');
+assert.equal(oceanJump.gaps.length,2);
+assert.equal(oceanJump.segments.filter(s=>s.length>=2).length,0);
+assert.ok(!oceanJump.distanceNm);
+console.log('PASS: aviation airway/ident collisions; US detours rejected');
