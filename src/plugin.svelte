@@ -116,7 +116,7 @@
   let githubVertices=0;
   let parsed:ParsedRoute|null=null;
   let lines:L.Polyline[]=[];
-  let markers:L.CircleMarker[]=[];
+  let markers: Array<L.CircleMarker | L.Marker>=[];
   let labeledCount=0;
   let weather:WeatherRow[]=[];
   let weatherFL=350;
@@ -128,13 +128,19 @@
   let etdValue=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
   let pointTotal=0,loadedSources=0,airways=0;
   const pressuresDescending=[...PRESSURES].reverse();
-  const clearMap=()=>{for(const l of lines)map.removeLayer(l);for(const m of markers)map.removeLayer(m);lines=[];markers=[];};
+  const clearMap=()=>{
+    // Broken/unavailable map layers must not stop the plugin panel from opening.
+    for(const layer of [...lines, ...markers]) {
+      try { map.removeLayer(layer); } catch (err) { console.warn('Could not remove route layer',err); }
+    }
+    lines=[];markers=[];
+  };
   const clearRoute=()=>{clearMap();routeText='';parsed=null;labeledCount=0;weather=[];status='Маршрут очищен';};
   function runRoute():void {
     clearMap();weather=[];parsed=parseRoute(routeText);
     const safeSegments=parsed.segments.filter(s=>s.length>=2);
     const namedFixes=mapLabelPoints(parsed);
-    labeledCount=namedFixes.length;
+    labeledCount=0;
     if(!safeSegments.length && !namedFixes.length){status='Нет распознанных точек или непрерывных участков. Проверь X-Plane базу и маршрут.';return;}
     const visibleCoords:[number,number][]=[];
     for(const segment of safeSegments){
@@ -142,20 +148,46 @@
       visibleCoords.push(...coords);
       lines.push(new L.Polyline(coords,{color:'#ff853b',weight:4,opacity:.95}).addTo(map));
     }
-    // Real flight-plan fixes are labeled INDEPENDENTLY of airway segment drawing.
-    // Leaflet permanent tooltips render above the route overlay (tooltip pane),
-    // unlike DivIcon markers that could be hidden under Windy layers on iPad.
-    // Internal ATS geometry vertices (M56-2, B105-3, etc.) are never labeled.
+    // Label ONLY fixes explicitly named in the flight plan. Never label
+    // expanded airway geometry (M56-2 / B105-3 / ...).
+    // Windy leaflet-gl does not support old factory functions L.circleMarker(),
+    // L.marker(), etc. Use the constructor API (new L.CircleMarker / Marker).
     for (const p of namedFixes) {
-      const dot = L.circleMarker([p.lat,p.lon], {
-        radius:3.5, color:'#fff', weight:1.4,
-        fillColor:'#ff853b', fillOpacity:1, interactive:false
-      });
-      dot.bindTooltip(p.ident, {
-        permanent:true, direction:'right', offset:[7,0],
-        className:'fr-route-fix-tooltip', opacity:1, interactive:false
-      });
-      markers.push(dot.addTo(map));
+      let drawn = false;
+      let dot: L.CircleMarker | undefined;
+      try {
+        dot = new L.CircleMarker([p.lat,p.lon], {
+          radius:3.5, color:'#fff', weight:1.4,
+          fillColor:'#ff853b', fillOpacity:1, interactive:false
+        });
+        if (typeof dot.bindTooltip !== 'function') throw Error('Tooltip not available');
+        const safeLabel = document.createElement('span');
+        safeLabel.textContent = p.ident;
+        dot.bindTooltip(safeLabel, {
+          permanent:true, direction:'right', offset:[7,0],
+          className:'fr-route-fix-tooltip', opacity:1, interactive:false
+        });
+        markers.push(dot.addTo(map));
+        drawn = true;
+      } catch (err) {
+        console.warn('Tooltip marker unavailable; using DivIcon fallback', p.ident, err);
+        if (dot) try { map.removeLayer(dot); } catch (_err) { /* already removed */ }
+        // Fallback used before v0.6.2 and compatible with new Windy constructors.
+        try {
+          const label = new L.DivIcon({
+            html:`<span class="fr-waypoint">${p.ident}</span>`,
+            className:'fr-label-icon', iconSize:[90,22], iconAnchor:[5,11]
+          });
+          const marker = new L.Marker([p.lat,p.lon], {
+            icon:label, interactive:false, zIndexOffset:10000
+          });
+          markers.push(marker.addTo(map));
+          drawn = true;
+        } catch (fallbackError) {
+          console.error('Could not create waypoint marker',p.ident,fallbackError);
+        }
+      }
+      if (drawn) labeledCount++;
     }
     // Fit only verified route legs; still show labeled isolated fixes for diagnosis.
     if(!visibleCoords.length) visibleCoords.push(...namedFixes.map(p=>[p.lat,p.lon] as [number,number]));
@@ -227,9 +259,14 @@
     const a=document.createElement('a'),u=URL.createObjectURL(new Blob(['\uFEFF'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}));
     a.href=u;a.download='flight-weather-prototype.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);
   }
-  export const onopen=()=>{if(parsed?.points.length)runRoute();};
+  export const onopen=()=>{
+    if(parsed?.points.length) try { runRoute(); }
+    catch(err) { console.error('Route rendering failed',err);status='Ошибка карты: '+String(err); }
+  };
   onMount(()=>{
-    loadDemo();pointTotal=totalPoints();runRoute();
+    loadDemo();pointTotal=totalPoints();
+    try { runRoute(); }
+    catch(err) { console.error('Initial map rendering failed',err);status='Не удалось нарисовать маршрут: '+String(err); }
     // On opening Windy, use the last published GitHub snapshot automatically.
     // Failures are visible and never silently replaced with an alleged full AIRAC database.
     (async()=>{await updateHosted();await reloadSources();})();
@@ -269,4 +306,6 @@
     pointer-events:none;
   }
   :global(.leaflet-tooltip.fr-route-fix-tooltip:before) {display:none;}
+  :global(.fr-label-icon) {background:transparent;border:none;z-index:10000;}
+  :global(.fr-waypoint) {display:inline-block;color:#fff;background:rgba(20,28,40,.93);border:1px solid #ff9b53;border-radius:4px;padding:3px 5px;font-size:11px;font-weight:bold;white-space:nowrap;}
 </style>
