@@ -9,7 +9,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: build-navdata-main
+  group: navdata-updates-main
   cancel-in-progress: false
 jobs:
   convert:

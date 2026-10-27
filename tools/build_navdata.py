@@ -2,12 +2,12 @@
 """Convert user-supplied, redistributable X-Plane nav files to static Windy CSV.
 Supports XP10 legacy and XPFIX/XPAWY 1100/1101, basic NAV; no procedure/FL validation.
 """
-import csv, json, re, sys, zipfile
+import csv, json, os, re, sys, zipfile, hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 
 ROOT=Path(__file__).resolve().parents[1]
-IN=ROOT/'navdata-input'
+IN=Path(os.environ.get('NAVDATA_INPUT_DIR', str(ROOT/'navdata-input')))
 OUT=ROOT/'public/navdata'
 OUT.mkdir(parents=True,exist_ok=True)
 
@@ -51,7 +51,7 @@ def make():
     fixrows,cf,hf=parsed_rows(files['earth_fix.dat'])
     navrows,cn,hn=parsed_rows(files['earth_nav.dat'])
     awyrows,ca,ha=parsed_rows(files['earth_awy.dat'])
-    source_desc='ZIP '+next(iter(IN.glob('*.zip'))).name if list(IN.glob('*.zip')) else 'three .dat files'
+    source_desc=os.environ.get('NAVDATA_SOURCE_LABEL') or ('ZIP '+next(iter(IN.glob('*.zip'))).name if list(IN.glob('*.zip')) else 'three .dat files')
     declared=[x for x in (cf,cn,ca) if x]
     if 0<len(declared)<3:
         raise SystemExit(f'AIRAC metadata incomplete: FIX={cf}, NAV={cn}, AWY={ca}')
@@ -117,6 +117,7 @@ def make():
           'airac_cycle':declared[0] if declared else None,'points':len(point_list),
           'airway_segments':edges,'skipped_airway_segments':dropped,
           'source':f'User-supplied X-Plane navdata ({source_desc}; verify license and AIRAC)',
+          'source_sha256':os.environ.get('NAVDATA_SOURCE_SHA256',''),
           'warning':'Visualization only; no direction/altitude/NOTAM validation or certified navigation'}
     (OUT/'manifest.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(meta,indent=2))

@@ -11,3 +11,6 @@ tests/generated/
 # These two files must be public, generated via GitHub Actions
 !public/navdata/points.csv
 !public/navdata/airways.csv
+
+# ZIP updates uploaded to root of Codespaces must not be committed
+/Windy-Flight-Route-Analyzer*.zip

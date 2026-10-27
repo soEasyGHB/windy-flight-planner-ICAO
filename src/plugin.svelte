@@ -78,30 +78,22 @@
     <p class="small">* Индикаторы по упрощённым порогам: T от −20 до 0 °C и RH ≥80% (условия возможного обледенения); ветер ≥100 kt; CAPE &gt;1000 J/kg; разница скорости ветра ≥35 kt между соседними уровнями. Это <b>НЕ</b> прогноз фактического обледенения, CAT/турбулентности, гроз по трассе или опасных явлений по ICAO. Для решений используйте SIGMET, значимые карты, AIP, NOTAM и утверждённые источники.</p>
   {/if}
   <hr />
-  <h3>Навигационная база X-Plane 11/12</h3>
-  <p class="small">На iPad удобнее выбрать <b>один ZIP</b> с <code>earth_fix.dat</code>, <code>earth_nav.dat</code> и <code>earth_awy.dat</code> одного AIRAC. ZIP может содержать вложенные папки. Можно также выбрать три отдельных файла .dat или .txt. Данные остаются на устройстве.</p>
-  <label for="xplane-files">Добавить ZIP или три файла X-Plane</label>
-  <input id="xplane-files" type="file" multiple on:change={selectXPlaneFiles}/>
-  <div class="btnrow"><button class="primary" type="button" disabled={busy || selectedXplaneFiles.length===0} on:click={importXPlane}>Импортировать X-Plane в Windy</button></div>
-  {#if xplaneCycle}<p class="info">Локальный AIRAC: {xplaneCycle}; он не хранится на сервере Windy.</p>{/if}
-  {#if xplaneWarnings.length}<p class="warning">{xplaneWarnings.join(' · ')}</p>{/if}
-  <hr />
-  <h3>Общая база через GitHub (необязательно)</h3>
-  <label for="github-navdata">Ссылка на публичный GitHub-репозиторий (один раз)</label>
-  <input id="github-navdata" type="url" bind:value={navdataUrl} placeholder="https://github.com/USER/windy-flight-planner" />
+  <h3>Навигационная база X-Plane — Google Drive → GitHub</h3>
+  <p class="small">Положи один ZIP с файлами <code>earth_fix.dat</code>, <code>earth_nav.dat</code>, <code>earth_awy.dat</code> одного AIRAC в публично доступную папку Google Drive. GitHub Actions проверяет её по расписанию, конвертирует базу и публикует CSV для Windy. Ссылка на папку задаётся в GitHub Actions → Variables как <code>GDRIVE_NAVDATA_FOLDER_URL</code>.</p>
+  <p class="small">Репозиторий базы: <a href={repoUrl} target="_blank" rel="noopener noreferrer">{repoUrl}</a></p>
   <div class="btnrow">
-    <button type="button" on:click={openGitHubUpload}>Открыть загрузку файлов GitHub</button>
-    <button type="button" disabled={busy} class="primary" on:click={updateHosted}>Обновить базу из GitHub</button>
+    <button type="button" on:click={openSyncWorkflow}>Проверить синхронизацию Google Drive</button>
+    <button type="button" on:click={openGitHubUpload}>Резерв: загрузить ZIP через GitHub</button>
+    <button type="button" class="primary" disabled={busy} on:click={updateHosted}>Проверить новую базу</button>
   </div>
-  <p class="small">В GitHub можно загрузить один ZIP вместо трёх .dat. Нужно войти в аккаунт и подтвердить Commit changes. Браузерный плагин не может безопасно публиковать файлы в репозиторий без отдельной авторизации. GitHub Actions создаёт CSV из ZIP, затем нажми «Обновить базу из GitHub». Чтобы читать CSV без токена, репозиторий должен быть публичным.</p>
-  <p class="warning">Не загружай платные или персонально лицензированные X-Plane/Navigraph/Jeppesen файлы в публичный GitHub без разрешения правообладателя. Для таких данных используй локальный импорт выше.</p>
-
-  <p class="small">{pointTotal.toLocaleString('ru-RU')} записей · открытые источники: {loadedSources}/3 · импортировано: {imported} · трасс: {airways}. Загрузка открытых источников выполняется в браузере; интернет и CORS обязательны.</p>
-  <label>Добавить собственный CSV навигационных точек</label>
-  <input type="file" accept=".csv,text/csv" on:change={importFile}/>
-  <p class="small">CSV: <code>ident,latitude_deg,longitude_deg,type</code> или экспорт воздушных трасс <code>airway,segment,seq,latitude_deg,longitude_deg</code>. Для GeoPackage (.gpkg) есть конвертер. Соблюдайте лицензию ICAO.</p>
-  <button type="button" on:click={reloadSources}>Перезагрузить открытые данные</button>
-  <p class="small">Открытые дополнительные источники неполные. X-Plane: геометрия ATS сегментов, без проверки направлений, высотных ограничений, действительности трассы, SID/STAR, NOTAM. Проверка AIRAC — только совпадение заголовков трёх файлов, не проверка актуальности.</p>
+  {#if githubCycle}
+    <p class="info">GitHub: AIRAC {githubCycle}, обновлено {githubGenerated || 'дата не указана'}; точек {githubPoints.toLocaleString('ru-RU')}; вершин трасс {githubVertices.toLocaleString('ru-RU')}.</p>
+  {:else}
+    <p class="warning">База GitHub ещё не загружена. Проверь доступность исходных данных и статус GitHub Actions → build-navdata. Без базы трассы могут остаться неопознанными.</p>
+  {/if}
+  <p class="small">Синхронизация папки Drive выполняется ежедневно и по кнопке Run workflow на GitHub. Windy загружает последнюю обработанную базу при открытии или по кнопке «Проверить новую базу». Для обновления AIRAC повторная публикация кода плагина не нужна.</p>
+  <p class="warning">Важно: публичная ссылка Drive нужна для автоматической загрузки без Google OAuth. А Windy читает CSV только из публичного GitHub-репозитория — из приватного без токена не сможет. Не публикуй лицензированные X-Plane/Navigraph/Jeppesen данные без права на распространение.</p>
+  <p class="small">{pointTotal.toLocaleString('ru-RU')} точек (все загруженные источники), трасс: {airways}; дополнительные открытые источники: {loadedSources}/3. Геометрия предназначена только для визуализации, а не для IFR-навигации. Проверка AIRAC — только совпадение заголовков трёх файлов.</p>
 </section>
 <script lang="ts">
   import bcast from '@windy/broadcast';
@@ -110,19 +102,18 @@
   import { map } from '@windy/map';
   import store from '@windy/store';
   import { onMount,onDestroy } from 'svelte';
-  import {loadDemo,loadOpenSources,importCsv,importAirwaysCsv,airwayCount,parseRoute,totalPoints,sourceCount,userPointCount,loadGithubSnapshot,loadLocalXPlaneSnapshot,githubUploadUrl} from './navdb';
-  import {convertXPlane} from './xplane';
-  import JSZip from 'jszip';
+  import {loadDemo,loadOpenSources,airwayCount,parseRoute,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
+  import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {generateSamples,loadWeather,flLevel,PRESSURES} from './weather';
   import type {ParsedRoute} from './navdb';
   import type {WeatherRow} from './weather';
   let routeText='EHAM DCT EDDF DCT LTFM DCT OMDB';
   let status='Загрузка базы ещё не началась';
-  let navdataUrl='';
-  let xplaneCycle='';
-  let xplaneWarnings:string[]=[];
-  let selectedXplaneFiles:File[]=[];
-  let uploadLink='';
+  const repoUrl = NAVDATA_GITHUB_REPO;
+  let githubCycle='';
+  let githubGenerated='';
+  let githubPoints=0;
+  let githubVertices=0;
   let parsed:ParsedRoute|null=null;
   let lines:L.Polyline[]=[];
   let markers:L.Marker[]=[];
@@ -134,7 +125,7 @@
   let fl=350;
   let tas=450;
   let etdValue=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
-  let pointTotal=0,loadedSources=0,imported=0,airways=0;
+  let pointTotal=0,loadedSources=0,airways=0;
   const pressuresDescending=[...PRESSURES].reverse();
   const clearMap=()=>{for(const l of lines)map.removeLayer(l);for(const m of markers)map.removeLayer(m);lines=[];markers=[];};
   const clearRoute=()=>{clearMap();routeText='';parsed=null;weather=[];status='Маршрут очищен';};
@@ -148,7 +139,9 @@
       const coords=segment.map(p=>[p.lat,p.lon] as [number,number]);
       visibleCoords.push(...coords);
       lines.push(new L.Polyline(coords,{color:'#ff853b',weight:4,opacity:.95}).addTo(map));
-      for(const p of segment)if(!displayed.has(p.index)){
+      // Do not label internal airway geometry vertices (e.g. M56-2).
+      // The orange polyline still uses every vertex for accurate turns.
+      for(const p of segment)if(p.showLabel && !displayed.has(p.index)){
         displayed.add(p.index);
         const icon=new L.DivIcon({html:`<span class="fr-waypoint">${p.ident}</span>`,className:'fr-label-icon',iconSize:[90,20],iconAnchor:[5,10]});
         markers.push(new L.Marker([p.lat,p.lon],{icon}).addTo(map));
@@ -165,103 +158,37 @@
     status=`Windy: ${overlay}, ${model}, ${level}` + ((!okLevel)?' (уровень для этого слоя/модели может быть недоступен)':'') + ((!okOverlay)?' (слой может быть недоступен)':'') + ((!okModel)?' (модель может быть недоступна)':'');
   }
   async function updateHosted():Promise<void> {
-    if(!navdataUrl.trim()) {status='Вставьте ссылку на публичный GitHub-репозиторий';return;}
     busy=true;
     try {
-      status='Загрузка навигационной базы напрямую из GitHub…';
-      const result=await loadGithubSnapshot(navdataUrl);
-      try {localStorage.setItem('windy-flight-navdata-url',navdataUrl.trim());} catch(_) {}
+      status='Получаю обработанные навигационные данные из GitHub…';
+      const result=await loadGithubSnapshot(repoUrl);
+      githubCycle=result.cycle;
+      githubGenerated=result.generated;
+      githubPoints=result.points;
+      githubVertices=result.airwayVertices;
       pointTotal=totalPoints();airways=airwayCount();
       runRoute();
-      status=`GitHub: +${result.points} точек, ${result.airwayVertices} вершин трасс, AIRAC ${result.cycle}, опубликовано ${result.generated||'неизвестно'}`;
-    } catch(e) {status='Ошибка базы GitHub: '+String(e);}
-    finally {busy=false;}
+      status=`GitHub: AIRAC ${result.cycle}; ${result.points.toLocaleString('ru-RU')} точек, ${result.airwayVertices.toLocaleString('ru-RU')} вершин трасс. Маршрут перестроен.`;
+    } catch(e) {
+      status='Не удалось загрузить базу GitHub: '+String(e)+'; проверь публичный доступ, manifest и Actions/build-navdata.';
+    } finally {busy=false;}
   }
-  function selectXPlaneFiles(event:Event):void {
-    selectedXplaneFiles=Array.from((event.currentTarget as HTMLInputElement).files||[]);
-    status=selectedXplaneFiles.length
-      ?`Выбрано файлов: ${selectedXplaneFiles.map(f=>f.name).join(', ')}. Нажмите «Импортировать».`
-      :'Файлы X-Plane не выбраны';
-  }
-  function navFileKind(filename:string):'fix'|'nav'|'awy'|null {
-    // Safari allows renaming .dat to .txt to bypass an iPad file picker limitation.
-    const base=filename.split(/[\\/]/).pop()!.toLowerCase();
-    const normal=base.replace(/\.dat\.txt$/,'.dat').replace(/\.txt$/,'.dat');
-    if(normal==='earth_fix.dat')return 'fix';
-    if(normal==='earth_nav.dat')return 'nav';
-    if(normal==='earth_awy.dat')return 'awy';
-    return null;
-  }
-  async function readXPlaneInputs(files:File[]):Promise<{fix:string;nav:string;awy:string}> {
-    const zipFiles=files.filter(file=>/\.zip$/i.test(file.name));
-    const contents:Record<string,string>={};
-    if(zipFiles.length){
-      if(zipFiles.length!==1||files.length!==1)throw Error('Для импорта ZIP выберите только один архив, без дополнительных файлов');
-      if(zipFiles[0].size>80*1024*1024)throw Error('ZIP превышает 80 МБ, импорт на iPad ограничен для экономии памяти');
-      const zip=await JSZip.loadAsync(zipFiles[0]);
-      const matches:Record<string,JSZip.JSZipObject>={};
-      for(const entry of Object.values(zip.files)){
-        if(entry.dir||entry.name.startsWith('__MACOSX/')||entry.name.includes('/._'))continue;
-        const kind=navFileKind(entry.name);
-        if(!kind)continue;
-        if(matches[kind])throw Error(`В архиве несколько файлов earth_${kind}.dat. Оставьте один комплект AIRAC.`);
-        // Check inflated size before allocating full text; JSZip does not expose
-        // public uncompressed size. Large whole-archive size is capped above.
-        matches[kind]=entry;
-      }
-      for(const kind of ['fix','nav','awy']){
-        if(!matches[kind])throw Error(`В ZIP отсутствует earth_${kind}.dat`);
-        contents[kind]=await matches[kind].async('string');
-      }
-    } else {
-      const matches:Record<string,File>={};
-      for(const file of files){
-        const kind=navFileKind(file.name);
-        if(!kind)continue;
-        if(matches[kind])throw Error(`Выбраны дубликаты earth_${kind}.dat`);
-        matches[kind]=file;
-      }
-      for(const kind of ['fix','nav','awy']){
-        if(!matches[kind])throw Error(`Не найден earth_${kind}.dat. Можно также переименовать его в earth_${kind}.txt`);
-        contents[kind]=await matches[kind].text();
-      }
-    }
-    return {fix:contents.fix,nav:contents.nav,awy:contents.awy};
-  }
-  async function importXPlane():Promise<void> {
-    if(!selectedXplaneFiles.length){status='Сначала выберите ZIP или три файла';return;}
-    busy=true;
-    try {
-      status='Распаковка/чтение базы X-Plane и проверка AIRAC…';
-      const input=await readXPlaneInputs(selectedXplaneFiles);
-      const result=convertXPlane(input);
-      status='Конвертация завершена; загрузка точек и трасс в карту…';
-      const counts=loadLocalXPlaneSnapshot(result.pointsCsv,result.airwaysCsv);
-      xplaneCycle=result.cycle;
-      xplaneWarnings=result.warnings;
-      pointTotal=totalPoints();airways=airwayCount();runRoute();
-      status=`X-Plane AIRAC ${result.cycle}: ${counts.points.toLocaleString('ru-RU')} новых точек, ${result.airwayEdges.toLocaleString('ru-RU')} участков трасс; ошибок сегментов: ${result.rejectedEdges}.`;
-    } catch(error){status='Ошибка импорта X-Plane: '+String(error);}
-    finally {busy=false;}
+  function openSyncWorkflow():void {
+    window.open(repoUrl+'/actions/workflows/sync-gdrive-navdata.yml','_blank','noopener,noreferrer');
+    status='В GitHub: Actions → sync-gdrive-navdata → Run workflow. Публичную ссылку Drive укажи в Settings → Secrets and variables → Actions → Variables.';
   }
   function openGitHubUpload():void {
-    try {
-      uploadLink=githubUploadUrl(navdataUrl);
-      window.open(uploadLink,'_blank','noopener,noreferrer');
-      status='Открыта страница загрузки GitHub. Выберите один ZIP (например, xplane-navdata.zip) либо три earth_*.dat, затем Commit changes.';
-    } catch(e){status='Укажите адрес репозитория GitHub: '+String(e);}
+    const link=githubUploadUrl(repoUrl);
+    window.open(link,'_blank','noopener,noreferrer');
+    status='Резервный способ: на GitHub загрузи ZIP в navdata-input → Commit changes, затем Actions/build-navdata.';
   }
   async function reloadSources():Promise<void>{
-    busy=true;
-    try {await loadOpenSources(msg=>{status=msg;pointTotal=totalPoints();loadedSources=sourceCount();});
-      pointTotal=totalPoints();loadedSources=sourceCount();if(routeText)runRoute();}
-    catch(e){status='Ошибка навигационной базы: '+String(e);}
-    finally {busy=false;}
-  }
-  async function importFile(evt:Event):Promise<void>{
-    const file=(evt.currentTarget as HTMLInputElement).files?.[0];if(!file)return;
-    try {const text=await file.text();const isAirways=/^.*\bairway\b.*\bsegment\b.*\bseq\b/i.test(text.split('\n')[0]);const n=isAirways?importAirwaysCsv(text):importCsv(text,'user file');imported=userPointCount();airways=airwayCount();pointTotal=totalPoints();runRoute();status=`Импортировано ${n} ${isAirways?'вершин трасс':'точек'} из ${file.name}`;}
-    catch(e){status='Импорт не выполнен: '+String(e);}
+    try {
+      await loadOpenSources(msg=>{status=msg;pointTotal=totalPoints();loadedSources=sourceCount();});
+      pointTotal=totalPoints();loadedSources=sourceCount();
+      // Only use open sources as fallback; GitHub X-Plane is the main source.
+      if(routeText)runRoute();
+    } catch(e) {status='Часть дополнительных источников недоступна: '+String(e);}
   }
   async function analyze():Promise<void>{
     if(!parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0){status="Анализ недоступен: маршрут содержит неподтверждённые участки";return;}
@@ -288,8 +215,9 @@
   export const onopen=()=>{if(parsed?.points.length)runRoute();};
   onMount(()=>{
     loadDemo();pointTotal=totalPoints();runRoute();
-    try {navdataUrl=localStorage.getItem('windy-flight-navdata-url')||'';} catch(_) {}
-    (async()=>{await reloadSources();if(navdataUrl)await updateHosted();})();
+    // On opening Windy, use the last published GitHub snapshot automatically.
+    // Failures are visible and never silently replaced with an alleged full AIRAC database.
+    (async()=>{await updateHosted();await reloadSources();})();
   });
   onDestroy(()=>{clearMap();});
 </script>
