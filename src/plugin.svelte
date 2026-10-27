@@ -78,10 +78,10 @@
   {/if}
   <hr />
   <h3>Навигационная база X-Plane 11/12</h3>
-  <p class="small">Прямой импорт на iPad: выберите сразу <code>earth_fix.dat</code>, <code>earth_nav.dat</code> и <code>earth_awy.dat</code> <b>из одного AIRAC</b>. Файлы остаются на устройстве, в GitHub не отправляются. После перезагрузки вкладки импорт повторяется.</p>
-  <label for="xplane-files">Добавить три файла X-Plane</label>
-  <input id="xplane-files" type="file" accept=".dat,text/plain" multiple on:change={selectXPlaneFiles}/>
-  <div class="btnrow"><button class="primary" type="button" disabled={busy || selectedXplaneFiles.length<3} on:click={importXPlane}>Импортировать X-Plane в Windy</button></div>
+  <p class="small">На iPad удобнее выбрать <b>один ZIP</b> с <code>earth_fix.dat</code>, <code>earth_nav.dat</code> и <code>earth_awy.dat</code> одного AIRAC. ZIP может содержать вложенные папки. Можно также выбрать три отдельных файла .dat или .txt. Данные остаются на устройстве.</p>
+  <label for="xplane-files">Добавить ZIP или три файла X-Plane</label>
+  <input id="xplane-files" type="file" multiple on:change={selectXPlaneFiles}/>
+  <div class="btnrow"><button class="primary" type="button" disabled={busy || selectedXplaneFiles.length===0} on:click={importXPlane}>Импортировать X-Plane в Windy</button></div>
   {#if xplaneCycle}<p class="info">Локальный AIRAC: {xplaneCycle}; он не хранится на сервере Windy.</p>{/if}
   {#if xplaneWarnings.length}<p class="warning">{xplaneWarnings.join(' · ')}</p>{/if}
   <hr />
@@ -92,7 +92,7 @@
     <button type="button" on:click={openGitHubUpload}>Открыть загрузку файлов GitHub</button>
     <button type="button" disabled={busy} class="primary" on:click={updateHosted}>Обновить базу из GitHub</button>
   </div>
-  <p class="small">При загрузке файла в GitHub нужно войти в свой аккаунт и подтвердить Commit changes. Браузерный плагин не может безопасно публиковать файлы в репозиторий без отдельной авторизации. GitHub Actions создаёт CSV, затем нажми «Обновить базу из GitHub». Чтобы читать CSV без токена, репозиторий должен быть публичным.</p>
+  <p class="small">В GitHub можно загрузить один ZIP вместо трёх .dat. Нужно войти в аккаунт и подтвердить Commit changes. Браузерный плагин не может безопасно публиковать файлы в репозиторий без отдельной авторизации. GitHub Actions создаёт CSV из ZIP, затем нажми «Обновить базу из GitHub». Чтобы читать CSV без токена, репозиторий должен быть публичным.</p>
   <p class="warning">Не загружай платные или персонально лицензированные X-Plane/Navigraph/Jeppesen файлы в публичный GitHub без разрешения правообладателя. Для таких данных используй локальный импорт выше.</p>
 
   <p class="small">{pointTotal.toLocaleString('ru-RU')} записей · открытые источники: {loadedSources}/3 · импортировано: {imported} · трасс: {airways}. Загрузка открытых источников выполняется в браузере; интернет и CORS обязательны.</p>
@@ -111,6 +111,7 @@
   import { onMount,onDestroy } from 'svelte';
   import {loadDemo,loadOpenSources,importCsv,importAirwaysCsv,airwayCount,parseRoute,totalPoints,sourceCount,userPointCount,loadGithubSnapshot,loadLocalXPlaneSnapshot,githubUploadUrl} from './navdb';
   import {convertXPlane} from './xplane';
+  import JSZip from 'jszip';
   import {generateSamples,loadWeather,flLevel,PRESSURES} from './weather';
   import type {ParsedRoute} from './navdb';
   import type {WeatherRow} from './weather';
@@ -171,18 +172,62 @@
   }
   function selectXPlaneFiles(event:Event):void {
     selectedXplaneFiles=Array.from((event.currentTarget as HTMLInputElement).files||[]);
-    status=selectedXplaneFiles.length?`Выбрано ${selectedXplaneFiles.length}/3 файлов: ${selectedXplaneFiles.map(f=>f.name).join(', ')}`:'Файлы X-Plane не выбраны';
+    status=selectedXplaneFiles.length
+      ?`Выбрано файлов: ${selectedXplaneFiles.map(f=>f.name).join(', ')}. Нажмите «Импортировать».`
+      :'Файлы X-Plane не выбраны';
+  }
+  function navFileKind(filename:string):'fix'|'nav'|'awy'|null {
+    // Safari allows renaming .dat to .txt to bypass an iPad file picker limitation.
+    const base=filename.split(/[\\/]/).pop()!.toLowerCase();
+    const normal=base.replace(/\.dat\.txt$/,'.dat').replace(/\.txt$/,'.dat');
+    if(normal==='earth_fix.dat')return 'fix';
+    if(normal==='earth_nav.dat')return 'nav';
+    if(normal==='earth_awy.dat')return 'awy';
+    return null;
+  }
+  async function readXPlaneInputs(files:File[]):Promise<{fix:string;nav:string;awy:string}> {
+    const zipFiles=files.filter(file=>/\.zip$/i.test(file.name));
+    const contents:Record<string,string>={};
+    if(zipFiles.length){
+      if(zipFiles.length!==1||files.length!==1)throw Error('Для импорта ZIP выберите только один архив, без дополнительных файлов');
+      if(zipFiles[0].size>80*1024*1024)throw Error('ZIP превышает 80 МБ, импорт на iPad ограничен для экономии памяти');
+      const zip=await JSZip.loadAsync(zipFiles[0]);
+      const matches:Record<string,JSZip.JSZipObject>={};
+      for(const entry of Object.values(zip.files)){
+        if(entry.dir||entry.name.startsWith('__MACOSX/')||entry.name.includes('/._'))continue;
+        const kind=navFileKind(entry.name);
+        if(!kind)continue;
+        if(matches[kind])throw Error(`В архиве несколько файлов earth_${kind}.dat. Оставьте один комплект AIRAC.`);
+        // Check inflated size before allocating full text; JSZip does not expose
+        // public uncompressed size. Large whole-archive size is capped above.
+        matches[kind]=entry;
+      }
+      for(const kind of ['fix','nav','awy']){
+        if(!matches[kind])throw Error(`В ZIP отсутствует earth_${kind}.dat`);
+        contents[kind]=await matches[kind].async('string');
+      }
+    } else {
+      const matches:Record<string,File>={};
+      for(const file of files){
+        const kind=navFileKind(file.name);
+        if(!kind)continue;
+        if(matches[kind])throw Error(`Выбраны дубликаты earth_${kind}.dat`);
+        matches[kind]=file;
+      }
+      for(const kind of ['fix','nav','awy']){
+        if(!matches[kind])throw Error(`Не найден earth_${kind}.dat. Можно также переименовать его в earth_${kind}.txt`);
+        contents[kind]=await matches[kind].text();
+      }
+    }
+    return {fix:contents.fix,nav:contents.nav,awy:contents.awy};
   }
   async function importXPlane():Promise<void> {
-    const names=['earth_fix.dat','earth_nav.dat','earth_awy.dat'];
-    const lookup=new Map(selectedXplaneFiles.map(f=>[f.name.toLowerCase(),f]));
-    const missing=names.filter(n=>!lookup.has(n));
-    if(missing.length){status='Не хватает файлов: '+missing.join(', ')+' (нужны все три одного AIRAC)';return;}
+    if(!selectedXplaneFiles.length){status='Сначала выберите ZIP или три файла';return;}
     busy=true;
     try {
-      status='Чтение X-Plane: сначала проверяем AIRAC и координаты…';
-      const [fix,nav,awy]=await Promise.all(names.map(n=>lookup.get(n)!.text()));
-      const result=convertXPlane({fix,nav,awy});
+      status='Распаковка/чтение базы X-Plane и проверка AIRAC…';
+      const input=await readXPlaneInputs(selectedXplaneFiles);
+      const result=convertXPlane(input);
       status='Конвертация завершена; загрузка точек и трасс в карту…';
       const counts=loadLocalXPlaneSnapshot(result.pointsCsv,result.airwaysCsv);
       xplaneCycle=result.cycle;
@@ -196,7 +241,7 @@
     try {
       uploadLink=githubUploadUrl(navdataUrl);
       window.open(uploadLink,'_blank','noopener,noreferrer');
-      status='Открыта страница загрузки GitHub. Выберите три earth_*.dat, затем Commit changes.';
+      status='Открыта страница загрузки GitHub. Выберите один ZIP (например, xplane-navdata.zip) либо три earth_*.dat, затем Commit changes.';
     } catch(e){status='Укажите адрес репозитория GitHub: '+String(e);}
   }
   async function reloadSources():Promise<void>{

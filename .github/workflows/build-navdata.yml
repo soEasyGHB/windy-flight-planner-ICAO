@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'navdata-input/*.dat'
+      - 'navdata-input/*.zip'
   workflow_dispatch:
 permissions:
   contents: write

@@ -2,7 +2,7 @@
 """Convert user-supplied, redistributable X-Plane nav files to static Windy CSV.
 Supports XP10 legacy and XPFIX/XPAWY 1100/1101, basic NAV; no procedure/FL validation.
 """
-import csv, json, re, sys
+import csv, json, re, sys, zipfile
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -11,21 +11,47 @@ IN=ROOT/'navdata-input'
 OUT=ROOT/'public/navdata'
 OUT.mkdir(parents=True,exist_ok=True)
 
-def rows(path):
-    raw=path.read_text(encoding='utf-8-sig',errors='replace').splitlines()
+def parsed_rows(text):
+    raw=text.splitlines()
     header=' '.join(raw[:3])
     cycle=re.search(r'data\s+cycle\s+(\d{4})',header,re.I)
     data=[line.split() for line in raw if line.strip() and not line.startswith(('#',';')) and line.strip() not in ('I','A','99') and not re.match(r'^\d{3,4}\s+Version\b',line)]
     return data, (cycle.group(1) if cycle else None), raw[:3]
 
+def load_sources():
+    archives=sorted(IN.glob('*.zip'))
+    if archives:
+        if any((IN/n).exists() for n in ('earth_fix.dat','earth_nav.dat','earth_awy.dat')):
+            raise SystemExit('Смешаны ZIP и .dat. Удали старые .dat либо архив перед обновлением.')
+        if len(archives)>1:
+            raise SystemExit('Оставь один ZIP в navdata-input. Удали старые архивы.')
+        with zipfile.ZipFile(archives[0]) as z:
+            wanted={}
+            for info in z.infolist():
+                n=info.filename.replace('\\','/').split('/')[-1].lower()
+                if n.endswith('.dat.txt'): n=n[:-4]
+                elif n.endswith('.txt'): n=n[:-4]+'.dat'
+                if n in ('earth_fix.dat','earth_nav.dat','earth_awy.dat'):
+                    if n in wanted:raise SystemExit(f'Повторяется файл {n} внутри ZIP')
+                    if info.file_size>70*1024*1024:raise SystemExit(f'{n} слишком большой')
+                    wanted[n]=info
+            missing={'earth_fix.dat','earth_nav.dat','earth_awy.dat'}-wanted.keys()
+            if missing:raise SystemExit('В ZIP отсутствуют: '+', '.join(sorted(missing)))
+            return {name:z.read(info).decode('utf-8-sig',errors='replace') for name,info in wanted.items()}
+    names=['earth_fix.dat','earth_nav.dat','earth_awy.dat']
+    missing=[n for n in names if not (IN/n).is_file()]
+    if missing:raise SystemExit('Загрузи один ZIP или три .dat в navdata-input/: '+', '.join(missing))
+    return {name:(IN/name).read_text(encoding='utf-8-sig',errors='replace') for name in names}
+
 def valid(a,b):
     return -90<=a<=90 and -180<=b<=180
 
 def make():
-    fix=IN/'earth_fix.dat'; nav=IN/'earth_nav.dat'; awy=IN/'earth_awy.dat'
-    if not(fix.exists() and nav.exists() and awy.exists()):
-        raise SystemExit('Upload all three: earth_fix.dat, earth_nav.dat, earth_awy.dat into navdata-input/')
-    fixrows,cf,hf=rows(fix); navrows,cn,hn=rows(nav); awyrows,ca,ha=rows(awy)
+    files=load_sources()
+    fixrows,cf,hf=parsed_rows(files['earth_fix.dat'])
+    navrows,cn,hn=parsed_rows(files['earth_nav.dat'])
+    awyrows,ca,ha=parsed_rows(files['earth_awy.dat'])
+    source_desc='ZIP '+next(iter(IN.glob('*.zip'))).name if list(IN.glob('*.zip')) else 'three .dat files'
     declared=[x for x in (cf,cn,ca) if x]
     if 0<len(declared)<3:
         raise SystemExit(f'AIRAC metadata incomplete: FIX={cf}, NAV={cn}, AWY={ca}')
@@ -90,7 +116,7 @@ def make():
     meta={'status':'ready','generated_utc':datetime.now(timezone.utc).isoformat(),
           'airac_cycle':declared[0] if declared else None,'points':len(point_list),
           'airway_segments':edges,'skipped_airway_segments':dropped,
-          'source':'User-supplied X-Plane navdata (verify license and AIRAC)',
+          'source':f'User-supplied X-Plane navdata ({source_desc}; verify license and AIRAC)',
           'warning':'Visualization only; no direction/altitude/NOTAM validation or certified navigation'}
     (OUT/'manifest.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(meta,indent=2))

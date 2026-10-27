@@ -1,8 +1,7 @@
-Upload three X-Plane navdata files here using Github web Upload files:
-  earth_fix.dat
-  earth_nav.dat
-  earth_awy.dat
-Only upload data whose licensing permits processing and PUBLIC distribution on GitHub.
-For testing see the old GPL data at https://github.com/mcantsin/x-plane-navdata ;
-these files are not guaranteed current. Never upload Navigraph/Jeppesen proprietary
-files to public GitHub unless their license explicitly permits it.
+На iPad: загрузите ОДИН ZIP, содержащий earth_fix.dat, earth_nav.dat, earth_awy.dat (один AIRAC).
+Можно оставить файлы во вложенной папке внутри ZIP. Название архива может быть любым.
+GitHub Actions автоматически распакует архив в памяти и обновит public/navdata/.
+Если используете .dat вместо ZIP — загрузите все три в эту папку. Не смешивайте ZIP и .dat.
+GitHub website иногда не позволяет выбрать .dat на iPad, поэтому ZIP рекомендован.
+Важно: публиковать можно только данные, лицензия которых явно разрешает публичное распространение.
+Для персонально лицензированных баз используйте ЛОКАЛЬНЫЙ ZIP-импорт через Windy.
