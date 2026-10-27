@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "ESNext",
+    "lib": ["es2022", "webworker", "DOM"],
+    "noImplicitAny": true,
+    "removeComments": true,
+    "outDir": "dist",
+    "target": "es2022",
+    "typeRoots": ["./node_modules/@types/", "./declarations"],
+    "sourceMap": false,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "strictNullChecks": true,
+    "isolatedModules": true,
+    "paths": {"@windy/*": ["./node_modules/@windycom/plugin-devtools/types/*", "./node_modules/@windycom/plugin-devtools/types/client/*"]}
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}
