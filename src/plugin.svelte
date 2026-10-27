@@ -10,7 +10,7 @@
   </div>
   <p class="info" aria-live="polite">{status}</p>
   {#if parsed}
-    <div class="stats"><b>{parsed.points.length}</b> найдено точек · <b>{Math.round(parsed.distanceNm)} NM</b> (только подтверждённые участки)</div>
+    <div class="stats"><b>{parsed.points.length}</b> найдено точек · <b>{Math.round(parsed.distanceNm)} NM</b> (только подтверждённые участки) · <b>{labeledCount}</b> подписей на карте</div>
     {#if parsed.unresolved.length}<p class="warning">Неизвестные точки: {parsed.unresolved.join(', ')}. Линия неполная; не используйте её как маршрут.</p>{/if}
     {#if parsed.expandedAirways.length}<p class="info">Развёрнуты по импортированной геометрии ATS: {parsed.expandedAirways.join(', ')} (проверьте AIRAC/ограничения).</p>{/if}
     {#if parsed.airwayNames.length}<p class="warning">Трассы {parsed.airwayNames.join(', ')} пока НЕ разворачиваются в промежуточные точки. Неподтверждённые участки НЕ соединяются линией.</p>{/if}
@@ -102,7 +102,7 @@
   import { map } from '@windy/map';
   import store from '@windy/store';
   import { onMount,onDestroy } from 'svelte';
-  import {loadDemo,loadOpenSources,airwayCount,parseRoute,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
+  import {loadDemo,loadOpenSources,airwayCount,parseRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {generateSamples,loadWeather,flLevel,PRESSURES} from './weather';
   import type {ParsedRoute} from './navdb';
@@ -116,7 +116,8 @@
   let githubVertices=0;
   let parsed:ParsedRoute|null=null;
   let lines:L.Polyline[]=[];
-  let markers:L.Marker[]=[];
+  let markers:L.CircleMarker[]=[];
+  let labeledCount=0;
   let weather:WeatherRow[]=[];
   let weatherFL=350;
   let busy=false;
@@ -128,27 +129,41 @@
   let pointTotal=0,loadedSources=0,airways=0;
   const pressuresDescending=[...PRESSURES].reverse();
   const clearMap=()=>{for(const l of lines)map.removeLayer(l);for(const m of markers)map.removeLayer(m);lines=[];markers=[];};
-  const clearRoute=()=>{clearMap();routeText='';parsed=null;weather=[];status='Маршрут очищен';};
+  const clearRoute=()=>{clearMap();routeText='';parsed=null;labeledCount=0;weather=[];status='Маршрут очищен';};
   function runRoute():void {
     clearMap();weather=[];parsed=parseRoute(routeText);
     const safeSegments=parsed.segments.filter(s=>s.length>=2);
-    if(!safeSegments.length){status='Нет непрерывных проверенных участков. Проверь X-Plane базу, точки и ATS-трассы.';return;}
+    const namedFixes=mapLabelPoints(parsed);
+    labeledCount=namedFixes.length;
+    if(!safeSegments.length && !namedFixes.length){status='Нет распознанных точек или непрерывных участков. Проверь X-Plane базу и маршрут.';return;}
     const visibleCoords:[number,number][]=[];
-    const displayed=new Set<number>();
     for(const segment of safeSegments){
       const coords=segment.map(p=>[p.lat,p.lon] as [number,number]);
       visibleCoords.push(...coords);
       lines.push(new L.Polyline(coords,{color:'#ff853b',weight:4,opacity:.95}).addTo(map));
-      // Do not label internal airway geometry vertices (e.g. M56-2).
-      // The orange polyline still uses every vertex for accurate turns.
-      for(const p of segment)if(p.showLabel && !displayed.has(p.index)){
-        displayed.add(p.index);
-        const icon=new L.DivIcon({html:`<span class="fr-waypoint">${p.ident}</span>`,className:'fr-label-icon',iconSize:[90,20],iconAnchor:[5,10]});
-        markers.push(new L.Marker([p.lat,p.lon],{icon}).addTo(map));
-      }
     }
-    try {map.fitBounds(visibleCoords,{padding:[25,25],maxZoom:8});} catch(_e) {map.setView(visibleCoords[0],5);}
-    status=`Построены только непрерывные участки: ${Math.round(parsed.distanceNm)} NM, разрывов ${parsed.gaps.length}. Не подтверждает ATS-маршрут.`;
+    // Real flight-plan fixes are labeled INDEPENDENTLY of airway segment drawing.
+    // Leaflet permanent tooltips render above the route overlay (tooltip pane),
+    // unlike DivIcon markers that could be hidden under Windy layers on iPad.
+    // Internal ATS geometry vertices (M56-2, B105-3, etc.) are never labeled.
+    for (const p of namedFixes) {
+      const dot = L.circleMarker([p.lat,p.lon], {
+        radius:3.5, color:'#fff', weight:1.4,
+        fillColor:'#ff853b', fillOpacity:1, interactive:false
+      });
+      dot.bindTooltip(p.ident, {
+        permanent:true, direction:'right', offset:[7,0],
+        className:'fr-route-fix-tooltip', opacity:1, interactive:false
+      });
+      markers.push(dot.addTo(map));
+    }
+    // Fit only verified route legs; still show labeled isolated fixes for diagnosis.
+    if(!visibleCoords.length) visibleCoords.push(...namedFixes.map(p=>[p.lat,p.lon] as [number,number]));
+    if(visibleCoords.length) {
+      try {map.fitBounds(visibleCoords,{padding:[35,35],maxZoom:8});}
+      catch(_e) {map.setView(visibleCoords[0],5);}
+    }
+    status=`Маршрут: ${Math.round(parsed.distanceNm)} NM; подписей точек: ${labeledCount}; разрывов: ${parsed.gaps.length}. ATS-трассы показаны только линией.`;
   }
   function setWeatherLayer():void {
     const okModel=store.set('product',model as any);
@@ -247,6 +262,11 @@
   .flightplanner td.flag {background:#633f20;color:#ffd8a5;}
   .flightplanner hr {border:0;border-top:1px solid #4b515b;margin:14px 0;}
   .flightplanner details summary {cursor:pointer;}
-  :global(.fr-label-icon) {background:transparent;border:none;}
-  :global(.fr-waypoint) {display:inline-block;color:#fff;background:rgba(20,28,40,.85);border:1px solid #ff9b53;border-radius:4px;padding:3px 5px;font-size:10px;font-weight:bold;white-space:nowrap;}
+  :global(.leaflet-tooltip.fr-route-fix-tooltip) {
+    background:rgba(20,28,40,.94);color:#fff;border:1px solid #ff9b53;
+    border-radius:4px;padding:3px 6px;font-size:11px;font-weight:700;
+    line-height:1.2;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.5);
+    pointer-events:none;
+  }
+  :global(.leaflet-tooltip.fr-route-fix-tooltip:before) {display:none;}
 </style>

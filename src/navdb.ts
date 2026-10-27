@@ -1,10 +1,22 @@
 // Sources: OurAirports (public domain), euvl/aviation-waypoints (MIT).
 // ICAO licensed dataset is NOT bundled. Import licensed exports only where permitted.
 export type NavPoint = { ident: string; lat: number; lon: number; type: string; source: string };
-export type RoutePoint = NavPoint & { index: number };
+export type RoutePoint = NavPoint & { index: number; showLabel: boolean };
 export type RouteGap = { from: string; to: string; distanceNm: number; reason: string };
 export type ParsedRoute = { points: RoutePoint[]; segments: RoutePoint[][]; gaps: RouteGap[]; unresolved: string[]; skipped: string[]; airwayNames: string[]; expandedAirways: string[]; ambiguous: string[]; distanceNm: number };
 export type AirwayVertex = { airway:string; segment:string; seq:number; lat:number; lon:number };
+/** Waypoints explicitly resolved from the entered flight plan.
+ * The airway-expanded geometry stays in ParsedRoute.points for drawing the
+ * accurate track, but is never turned into a map label. Do not depend on the
+ * length of safe line segments: named endpoints may be isolated by gaps. */
+export function mapLabelPoints(route: ParsedRoute): RoutePoint[] {
+  const seen = new Set<number>();
+  return route.points.filter(p => {
+    if (p.showLabel !== true || p.type === 'ATS' || seen.has(p.index)) return false;
+    seen.add(p.index);
+    return true;
+  });
+}
 const AIRWAYS:Map<string,Map<string,AirwayVertex[]>>=new Map();
 export function airwayCount():number {return AIRWAYS.size;}
 const DB: Map<string, NavPoint[]> = new Map();
@@ -352,13 +364,26 @@ export function parseRoute(text:string):ParsedRoute {
     if(!prev||!next||(alternate && Math.abs(score(chosen)-score(alternate))<120))ambiguous.push(tokens[i].ident);
   }
   let distanceNm=0,segment:RoutePoint[]=[];
-  const begin=(p:NavPoint)=>{if(segment.length)segments.push(segment);segment=[];append(p);};
-  const append=(p:NavPoint)=>{
+  // Mark explicit waypoints from the OFP separately from unnamed ATS
+  // geometry vertices (M56-2, B105-3, etc). Both remain in the polyline,
+  // but the map labels only the real, explicitly supplied route points.
+  const append=(p:NavPoint, showLabel=true)=>{
     const prev=segment[segment.length-1];
-    if(prev&&nm(prev,p)<0.01)return;
+    if(prev&&nm(prev,p)<0.01){
+      // An expanded airway often ends on the exact FIX named in the route.
+      // Promote its invisible vertex to the actual FIX rather than losing
+      // that endpoint label when deduplicating coincident coordinates.
+      if(showLabel && !prev.showLabel){
+        prev.ident=p.ident;prev.type=p.type;prev.source=p.source;
+        prev.lat=p.lat;prev.lon=p.lon;prev.showLabel=true;
+      }
+      return;
+    }
     if(prev)distanceNm+=nm(prev,p);
-    const r={...p,index:points.length};points.push(r);segment.push(r);
+    const r:RoutePoint={...p,index:points.length,showLabel};
+    points.push(r);segment.push(r);
   };
+  const begin=(p:NavPoint)=>{if(segment.length)segments.push(segment);segment=[];append(p);};
   append(selected[0]);
   for(let i=1;i<tokens.length;i++) {
     const prev=selected[i-1],current=selected[i],t=tokens[i],d=nm(prev,current);
@@ -385,7 +410,7 @@ export function parseRoute(text:string):ParsedRoute {
         gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Повреждённая геометрия трассы ${t.via}`});
         begin(current);continue;
       }
-      for(const p of expanded)append(p);
+      for(const p of expanded)append(p,false);
       expandedAirways.push(t.via);
     }
     append(current);

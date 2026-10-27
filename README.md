@@ -1,6 +1,32 @@
-# Windy Flight Route Analyzer v0.6.1 — Google Drive + GitHub
+# Windy Flight Route Analyzer v0.6.2 — подписи точек + Google Drive + GitHub
 
 **Главная цель:** просто заменять ZIP с навигационной базой X-Plane 11/12 в папке Google Drive; GitHub Actions обрабатывает его автоматически, а Windy отображает последнюю опубликованную навигационную базу.
+
+## Исправление v0.6.2: названия точек на карте
+
+- Названия FIX / RNAV / VOR / аэропортов, **явно присутствующих в плане полёта**, рисуются как постоянные подписи Leaflet (`permanent tooltip`) поверх оранжевой линии.
+- Промежуточные геометрические вершины ATS (`M56-2`, `B105-3`, ...) не подписываются, но сохраняют форму линии.
+- Метки именованных точек отображаются и при разрывах маршрута; разорванные участки по-прежнему не соединяются.
+- В панели добавлен счётчик подписей. Если он больше 0, но на карте надписей нет, следует проверить кеш Windy/обновить плагин.
+- Схема Google Drive → GitHub и навигационная база **не меняются**. Повторная загрузка navdata не требуется.
+
+### Быстрое обновление на iPad
+
+1. В GitHub Codespaces откройте Terminal; убедитесь, что `git status` не сообщает о незавершённом merge/rebase.
+2. Загрузите `Windy-Flight-Route-Analyzer-UPDATE-v0.6.2.zip` в корень проекта.
+3. Выполните команды из блока ниже; при ошибке остановитесь, не выполняйте `push --force`.
+
+```bash
+git pull --rebase origin main
+unzip -o Windy-Flight-Route-Analyzer-UPDATE-v0.6.2.zip
+npm test
+npm run build
+git add src/navdb.ts src/plugin.svelte src/pluginConfig.ts package.json tests/test.mjs README.md
+git commit -m "Show named waypoints on map v0.6.2"
+git push origin main
+```
+
+После успешного `push` зайдите GitHub → Actions → `publish-plugin` → Run workflow. Версия увеличена до `0.6.2`, поскольку Windy не позволяет публиковать дважды тот же номер.
 
 ## Что сохранено
 
