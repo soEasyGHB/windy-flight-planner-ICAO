@@ -1,14 +1,14 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "0.6.3",
+  "version": "0.7.1",
   "type": "module",
   "description": "Windy route planner using navdata uploaded and converted on GitHub; no file upload in Windy",
   "main": "dist/plugin.min.js",
   "scripts": {
     "start": "rollup -w -c",
     "build": "SERVE=false rollup -c",
-    "typecheck:core": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --strict src/navdb.ts src/weather.ts src/xplane.ts",
-    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts && node tests/test.mjs && node tests/test_xplane.mjs"
+    "typecheck:core": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --strict src/navdb.ts src/weather.ts src/xplane.ts src/routePlanner.ts",
+    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/weather.ts src/routePlanner.ts && sed -i \"s|'./navdb'|'./navdb.js'|g\" tests/generated/weather.js && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_weather.mjs && node tests/test_route_planner.mjs"
   },
   "author": "Prototype",
   "private": true,

@@ -25,6 +25,20 @@
     {/if}
   {/if}
   <hr />
+  <h3>Вылет и скорость полёта</h3>
+  <div class="flightinputs">
+    <div><label for="fr-etd-date">Дата вылета (UTC)</label><input id="fr-etd-date" type="date" bind:value={etdDate} on:change={flightInputsChanged} /></div>
+    <div><label for="fr-etd-time">Время вылета (UTC)</label><input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={flightInputsChanged} /></div>
+    <div><label for="fr-tas">TAS, kt</label><input id="fr-tas" type="number" min="100" max="700" step="5" bind:value={tas} on:change={flightInputsChanged}/></div>
+  </div>
+  <div class="btnrow">
+    <button type="button" class="primary" disabled={busy || !parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0 || parsed.airwayNames.length>0 || parsed.ambiguous.length>0} on:click={openNativeRoutePlanner}>Открыть в Windy Route Planner</button>
+    <button type="button" disabled={busy || !parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0 || parsed.airwayNames.length>0 || parsed.ambiguous.length>0} on:click={downloadPlannerGpx}>Скачать GPX (резерв)</button>
+    <button type="button" on:click={setMapToDeparture}>Время Windy = ETD</button>
+  </div>
+  <p class="small">Одна кнопка передаёт геометрию трасс штатному Route Planner по ссылке Windy. Если передача не поддерживается приложением iPad или маршрут слишком длинный, используй GPX. ETD и TAS задаются выше; штатный Route Planner может потребовать повторно выбрать дату UTC, IFR и скорость (450 kt по умолчанию) — публичная ссылка передаёт только координаты.</p>
+  <p class="small">Время на нижней шкале Windy устанавливается по UTC. ETA расчётное: расстояние / TAS, без ветровой поправки.</p>
+  <hr />
   <h3>Windy: отображаемая погода</h3>
   <div class="twofields">
     <div><label>Слой Windy</label><select bind:value={overlay} on:change={setWeatherLayer}>
@@ -44,32 +58,28 @@
   <p class="small">Windy отображает ближайший доступный изобарический уровень (например FL350 ≈ 250 hPa). Для некоторых слоёв выбор уровня недоступен.</p>
   <hr />
   <h3>Прогноз по маршруту и высотам</h3>
-  <p class="small">В этой части используется отдельный прогноз Open-Meteo, а не выбранная модель Windy. ETA приблизительное, без ветровой поправки.</p>
-  <div class="twofields">
-    <div><label>ETD, UTC</label><input type="datetime-local" bind:value={etdValue}/></div>
-    <div><label>Условная TAS, kt</label><input type="number" min="100" max="700" bind:value={tas} /></div>
-  </div>
+  <p class="small">Метеоразрез и таблица ниже используют прогноз Open-Meteo (Best Match), отличный от выбранной карты Windy. ETD UTC и TAS задаются выше. Тропопауза — приближённая оценка по вертикальному температурному градиенту модели, а не фактическая авиационная высота тропопаузы.</p>
   <div class="btnrow">
-    <button type="button" class="primary" disabled={busy || !parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0} on:click={analyze}>Анализ по высотам</button>
+    <button type="button" class="primary" disabled={busy || !parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0} on:click={openWeatherProfile}>Получить профиль и открыть</button>
     <button type="button" disabled={!weather.length} on:click={downloadWeather}>CSV отчёт</button>
   </div>
   {#if weather.length}
     <h4>Параметры на FL{weatherFL} (ближайший уровень {weather[0].flPressure} hPa)</h4>
-    <div class="scrolltable"><table><thead><tr><th>Место</th><th>ETA UTC</th><th>T °C</th><th>Ветер kt</th><th>RH %</th><th>Индикаторы*</th></tr></thead><tbody>
+    <div class="scrolltable"><table><thead><tr><th>Место</th><th>ETA UTC</th><th>T °C</th><th>Ветер kt</th><th>ISA Δ°C</th><th>Тропопауза≈ FL</th><th>RH %</th><th>Индикаторы*</th></tr></thead><tbody>
       {#each weather as w}
         <tr><td>{w.sample.label}<span class="muted"> · {Math.round(w.sample.distanceNm)}NM</span></td>
           <td>{w.sample.eta.toISOString().slice(11,16)}</td><td>{w.atFl?.temp ?? '—'}</td>
-          <td>{w.atFl?.windKt ?? '—'}</td><td>{w.atFl?.rh ?? '—'}</td>
+          <td>{w.atFl?.windKt ?? '—'}</td><td>{w.atFl?.isaDeviationC ?? '—'}</td><td>{w.tropopauseFL ?? '—'}</td><td>{w.atFl?.rh ?? '—'}</td>
           <td class:flag={w.alerts.length>0}>{w.alerts.length?w.alerts.join('; '):'—'}</td></tr>
       {/each}
     </tbody></table></div>
-    <h4>Вертикальный разрез: T °C / ветер kt</h4>
+    <h4>Вертикальный разрез: T °C / ветер kt / ISA Δ°C</h4>
     <div class="scrolltable"><table><thead><tr><th>hPa ≈ FL</th>{#each weather as w}<th>{w.sample.label}</th>{/each}</tr></thead><tbody>
       {#each pressuresDescending as p}
       <tr><td>{p} ≈ FL{Math.round((44330.77*(1-Math.pow(p/1013.25,1/5.25588))/0.3048)/100)}</td>
         {#each weather as w}
           <td class:flag={w.levels[p].indicators.length>0} title={w.levels[p].indicators.join('; ')}>
-            {w.levels[p].temp ?? '—'}° / {w.levels[p].windKt ?? '—'}kt {w.levels[p].indicators.length?'*':''}
+            {w.levels[p].temp ?? '—'}° / {w.levels[p].windKt ?? '—'}kt / {w.levels[p].isaDeviationC ?? '—'}° {w.levels[p].indicators.length?'*':''}
           </td>
         {/each}</tr>
       {/each}
@@ -78,7 +88,7 @@
     <p class="small">* Индикаторы по упрощённым порогам: T от −20 до 0 °C и RH ≥80% (условия возможного обледенения); ветер ≥100 kt; CAPE &gt;1000 J/kg; разница скорости ветра ≥35 kt между соседними уровнями. Это <b>НЕ</b> прогноз фактического обледенения, CAT/турбулентности, гроз по трассе или опасных явлений по ICAO. Для решений используйте SIGMET, значимые карты, AIP, NOTAM и утверждённые источники.</p>
   {/if}
   <hr />
-  <h3>Навигационная база X-Plane — Google Drive → GitHub</h3>
+  <h3>Навигационная база данных — Google Drive → GitHub</h3>
   <p class="small">Положи один ZIP с файлами <code>earth_fix.dat</code>, <code>earth_nav.dat</code>, <code>earth_awy.dat</code> одного AIRAC в публично доступную папку Google Drive. GitHub Actions проверяет её по расписанию, конвертирует базу и публикует CSV для Windy. Ссылка на папку задаётся в GitHub Actions → Variables как <code>GDRIVE_NAVDATA_FOLDER_URL</code>.</p>
   <p class="small">Репозиторий базы: <a href={repoUrl} target="_blank" rel="noopener noreferrer">{repoUrl}</a></p>
   <div class="btnrow">
@@ -89,12 +99,62 @@
   {#if githubCycle}
     <p class="info">GitHub: AIRAC {githubCycle}, обновлено {githubGenerated || 'дата не указана'}; точек {githubPoints.toLocaleString('ru-RU')}; вершин трасс {githubVertices.toLocaleString('ru-RU')}.</p>
   {:else}
-    <p class="warning">База GitHub ещё не загружена. Проверь доступность исходных данных и статус GitHub Actions → build-navdata. Без базы трассы могут остаться неопознанными.</p>
+    <p class="warning">Навигационная база ещё не загружена из GitHub. Проверь доступность исходных данных и статус GitHub Actions → build-navdata. Без базы трассы могут остаться неопознанными.</p>
   {/if}
   <p class="small">Синхронизация папки Drive выполняется ежедневно и по кнопке Run workflow на GitHub. Windy загружает последнюю обработанную базу при открытии или по кнопке «Проверить новую базу». Для обновления AIRAC повторная публикация кода плагина не нужна.</p>
-  <p class="warning">Важно: публичная ссылка Drive нужна для автоматической загрузки без Google OAuth. А Windy читает CSV только из публичного GitHub-репозитория — из приватного без токена не сможет. Не публикуй лицензированные X-Plane/Navigraph/Jeppesen данные без права на распространение.</p>
+  <p class="warning">Важно: публичная ссылка Drive нужна для автоматической загрузки без Google OAuth. А Windy читает CSV только из публичного GitHub-репозитория — из приватного без токена не сможет. Не публикуй коммерческие навигационные данные без права на их распространение.</p>
   <p class="small">{pointTotal.toLocaleString('ru-RU')} точек (все загруженные источники), трасс: {airways}; дополнительные открытые источники: {loadedSources}/3. Геометрия предназначена только для визуализации, а не для IFR-навигации. Проверка AIRAC — только совпадение заголовков трёх файлов.</p>
 </section>
+{#if profileOpen && weather.length}
+  <aside class="fr-profile-panel" aria-label="Метеоразрез маршрута">
+    <div class="fr-profile-head">
+      <div><strong>Профиль по маршруту</strong><span>ETD {etdDate} {etdTime} UTC · TAS {tas} kt · FL{weatherFL}</span></div>
+      <div class="fr-profile-tools"><label for="fr-metric">Высотный разрез</label>
+        <select id="fr-metric" bind:value={profileMetric}>
+          <option value="wind">Ветер</option><option value="isa">ISA deviation</option><option value="temp">Температура</option>
+        </select>
+        <button type="button" on:click={() => profileOpen=false} aria-label="Закрыть метеоразрез">✕</button>
+      </div>
+    </div>
+    <div class="fr-profile-scroll">
+      <div class="fr-profile-grid" style={`grid-template-columns: 86px repeat(${weather.length}, minmax(105px, 1fr))`}>
+        <div class="fr-profile-heading">ETA / NM</div>
+        {#each weather as w,i}
+          <button type="button" class={i===activeProfileIndex ? 'fr-active' : ''} on:click={() => selectProfilePoint(i)} title="Переключить время карты Windy на ETA точки">
+            <b>{w.sample.label}</b><small>{w.sample.eta.toISOString().slice(11,16)}Z · {Math.round(w.sample.distanceNm)}NM</small>
+          </button>
+        {/each}
+        <div class="fr-profile-heading">Ветер FL{weatherFL}</div>
+        {#each weather as w}
+          <div class="fr-profile-value">{w.atFl?.windDir ?? '—'}° / <b>{w.atFl?.windKt ?? '—'} kt</b></div>
+        {/each}
+        <div class="fr-profile-heading">ISA Δ°C</div>
+        {#each weather as w}
+          <div class="fr-profile-value fr-isa">{w.atFl?.isaDeviationC == null ? '—' : `${w.atFl.isaDeviationC > 0 ? '+' : ''}${w.atFl.isaDeviationC}°C`}</div>
+        {/each}
+        <div class="fr-profile-heading">Тропопауза≈</div>
+        {#each weather as w}
+          <div class="fr-profile-value">{w.tropopauseFL == null ? 'н/д' : `FL${w.tropopauseFL}`}</div>
+        {/each}
+        {#each profilePressureLevels as pressure}
+          <div class="fr-profile-heading">{pressure} hPa<small>≈ FL{Math.round(standardAltitudeM(pressure)/30.48)}</small></div>
+          {#each weather as w}
+            <div class="fr-profile-value" title={`${pressure} hPa · ${w.sample.label} · ${w.sample.eta.toISOString().slice(11,16)} UTC`}>
+              {#if profileMetric==='wind'}
+                {w.levels[pressure]?.windKt ?? '—'} kt<small>{w.levels[pressure]?.windDir ?? '—'}°</small>
+              {:else if profileMetric==='isa'}
+                {w.levels[pressure]?.isaDeviationC == null ? '—' : `${w.levels[pressure].isaDeviationC} °C`}
+              {:else}
+                {w.levels[pressure]?.temp == null ? '—' : `${w.levels[pressure].temp} °C`}
+              {/if}
+            </div>
+          {/each}
+        {/each}
+      </div>
+    </div>
+    <p class="fr-profile-note">Точки расчётные, время UTC · нажми на точку для смены времени Windy. Профиль Open-Meteo, а не встроенный Route Planner Windy. Тропопауза — приблизительная диагностическая оценка, не официальный SIGWX.</p>
+  </aside>
+{/if}
 <script lang="ts">
   import bcast from '@windy/broadcast';
   import config from './pluginConfig';
@@ -104,7 +164,8 @@
   import { onMount,onDestroy } from 'svelte';
   import {loadDemo,loadOpenSources,airwayCount,parseRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
-  import {generateSamples,loadWeather,flLevel,PRESSURES} from './weather';
+  import {generateSamples,loadWeather,flLevel,PRESSURES,standardAltitudeM} from './weather';
+  import {buildWindyPlannerLink,makeRouteGpx} from './routePlanner';
   import type {ParsedRoute} from './navdb';
   import type {WeatherRow} from './weather';
   let routeText='EHAM DCT EDDF DCT LTFM DCT OMDB';
@@ -125,7 +186,13 @@
   let model='ecmwf';
   let fl=350;
   let tas=450;
-  let etdValue=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
+  const initialETD=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
+  let etdDate=initialETD.slice(0,10);
+  let etdTime=initialETD.slice(11,16);
+  let profileOpen=false;
+  let activeProfileIndex=0;
+  let profileMetric:'wind'|'isa'|'temp'='wind';
+  const profilePressureLevels=[500,400,300,250,200,150,100];
   let pointTotal=0,loadedSources=0,airways=0;
   const pressuresDescending=[...PRESSURES].reverse();
   const clearMap=()=>{
@@ -135,13 +202,13 @@
     }
     lines=[];markers=[];
   };
-  const clearRoute=()=>{clearMap();routeText='';parsed=null;labeledCount=0;weather=[];status='Маршрут очищен';};
+  const clearRoute=()=>{clearMap();routeText='';parsed=null;labeledCount=0;weather=[];profileOpen=false;status='Маршрут очищен';};
   function runRoute():void {
-    clearMap();weather=[];parsed=parseRoute(routeText);
+    clearMap();weather=[];profileOpen=false;parsed=parseRoute(routeText);
     const safeSegments=parsed.segments.filter(s=>s.length>=2);
     const namedFixes=mapLabelPoints(parsed);
     labeledCount=0;
-    if(!safeSegments.length && !namedFixes.length){status='Нет распознанных точек или непрерывных участков. Проверь X-Plane базу и маршрут.';return;}
+    if(!safeSegments.length && !namedFixes.length){status='Нет распознанных точек или непрерывных участков. Проверь навигационную базу данных и маршрут.';return;}
     const visibleCoords:[number,number][]=[];
     for(const segment of safeSegments){
       const coords=segment.map(p=>[p.lat,p.lon] as [number,number]);
@@ -196,6 +263,7 @@
       catch(_e) {map.setView(visibleCoords[0],5);}
     }
     status=`Маршрут: ${Math.round(parsed.distanceNm)} NM; подписей точек: ${labeledCount}; разрывов: ${parsed.gaps.length}. ATS-трассы показаны только линией.`;
+    syncWindyTimestamp(departureDate(),false);
   }
   function setWeatherLayer():void {
     const okModel=store.set('product',model as any);
@@ -237,10 +305,71 @@
       if(routeText)runRoute();
     } catch(e) {status='Часть дополнительных источников недоступна: '+String(e);}
   }
+  function departureDate():Date {
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(etdDate) || !/^\d{2}:\d{2}$/.test(etdTime)) return new Date(NaN);
+    const dt=new Date(`${etdDate}T${etdTime}:00Z`);
+    return !Number.isNaN(dt.getTime()) && dt.toISOString().slice(0,16)===`${etdDate}T${etdTime}` ? dt : new Date(NaN);
+  }
+  function syncWindyTimestamp(when:Date,showStatus=true):void {
+    if(Number.isNaN(when.getTime())) {status='Укажи корректные дату и время вылета UTC';return;}
+    const ok=store.set('timestamp',when.getTime() as any);
+    const actual=Number(store.get('timestamp'));
+    if(showStatus) status= ok || Math.abs(actual-when.getTime())<60000
+      ? `Временная шкала Windy: ${when.toISOString().slice(0,16).replace('T',' ')} UTC`
+      : 'Windy не принял время: дата может быть вне доступного горизонта прогноза';
+  }
+  function setMapToDeparture():void {syncWindyTimestamp(departureDate());}
+
+  /** Direct Windy URL handoff, within the same browser/app context. */
+  function openNativeRoutePlanner():void {
+    if(!parsed) { status='Сначала построй маршрут'; return; }
+    const date=departureDate();
+    if(Number.isNaN(date.getTime()) || !(Number(tas)>=100&&Number(tas)<=700)) {
+      status='Проверь дату/время вылета UTC и TAS (100–700 kt)'; return;
+    }
+    try {
+      const link=buildWindyPlannerLink(parsed);
+      // Best effort sync before page navigation. URL itself does not encode ETD/TAS.
+      syncWindyTimestamp(date,false);
+      status=`Открываю штатный Windy Route Planner: ${link.verticesSent} точек`;
+      // Same tab avoids iPad popup blockers and works without undocumented Windy APIs.
+      window.location.assign(link.url);
+    } catch(err) {
+      status='Не удалось передать маршрут: '+String(err)+'; можно использовать GPX, если маршрут полный.';
+    }
+  }
+  function downloadPlannerGpx():void {
+    if(!parsed){status='Сначала построй маршрут';return;}
+    try {
+      const content=makeRouteGpx(parsed);
+      const file=new Blob([content],{type:'application/gpx+xml;charset=utf-8'});
+      const url=URL.createObjectURL(file);
+      const anchor=document.createElement('a');
+      anchor.href=url;anchor.download='windy-flight-route.gpx';
+      document.body.appendChild(anchor);anchor.click();anchor.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      status='GPX подготовлен. В Windy: Distance & planning → More → Import GPX. Используй Safari, если приложение блокирует загрузку.';
+    } catch(err){status='GPX не создан: '+String(err);}
+  }
+
+  function flightInputsChanged():void {
+    weather=[];profileOpen=false;activeProfileIndex=0;
+    if(!(Number(tas)>=100 && Number(tas)<=700)) {status='TAS должна быть в диапазоне 100–700 kt';return;}
+    syncWindyTimestamp(departureDate());
+  }
+  function selectProfilePoint(index:number):void {
+    if(index<0 || index>=weather.length)return;
+    activeProfileIndex=index;
+    syncWindyTimestamp(weather[index].sample.eta);
+  }
+  async function openWeatherProfile():Promise<void> {
+    await analyze();
+    if(weather.length) {profileOpen=true;selectProfilePoint(0);}
+  }
   async function analyze():Promise<void>{
     if(!parsed || parsed.points.length<2 || parsed.gaps.length>0 || parsed.unresolved.length>0){status="Анализ недоступен: маршрут содержит неподтверждённые участки";return;}
-    const date=new Date(etdValue+'Z');
-    if(Number.isNaN(date.getTime())||!(tas>0)){status='Проверьте ETD UTC и TAS';return;}
+    const date=departureDate();
+    if(Number.isNaN(date.getTime())||!(Number(tas)>=100 && Number(tas)<=700)){status='Проверьте ETD UTC и TAS (100–700 kt)';return;}
     busy=true;weather=[];
     try {
       const samples=generateSamples(parsed.points,date,Number(tas));
@@ -248,14 +377,14 @@
       weatherFL=Number(fl);
       status=`Профиль получен для ${weather.length} точек (Open-Meteo, ETA приблизительно).`;
       // Sync Windy timeline to departure time; API may reject out-of-range timestamps.
-      store.set('timestamp',date.getTime() as any);
+      syncWindyTimestamp(date,false);
     } catch(err) {status='Не удалось получить прогноз: '+String(err);}
     finally {busy=false;}
   }
   function downloadWeather():void {
     if(!weather.length)return;
-    const rows=[['point','lat','lon','nm','eta_utc','fl','hpa','temp_c','rh_percent','wind_kt','wind_dir','cape_jkg','indicators'].join(',')];
-    for(const w of weather){const m=w.atFl;rows.push([w.sample.label,w.sample.lat.toFixed(5),w.sample.lon.toFixed(5),w.sample.distanceNm.toFixed(1),w.sample.eta.toISOString(),weatherFL,w.flPressure,m?.temp??'',m?.rh??'',m?.windKt??'',m?.windDir??'',m?.cape??'',`"${w.alerts.join(' | ')}"`].join(','));}
+    const rows=[['point','lat','lon','nm','eta_utc','fl','hpa','temp_c','rh_percent','wind_kt','wind_dir','isa_deviation_c','tropopause_approx_fl','cape_jkg','indicators'].join(',')];
+    for(const w of weather){const m=w.atFl;rows.push([w.sample.label,w.sample.lat.toFixed(5),w.sample.lon.toFixed(5),w.sample.distanceNm.toFixed(1),w.sample.eta.toISOString(),weatherFL,w.flPressure,m?.temp??'',m?.rh??'',m?.windKt??'',m?.windDir??'',m?.isaDeviationC??'',w.tropopauseFL??'',m?.cape??'',`"${w.alerts.join(' | ')}"`].join(','));}
     const a=document.createElement('a'),u=URL.createObjectURL(new Blob(['\uFEFF'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}));
     a.href=u;a.download='flight-weather-prototype.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);
   }
@@ -286,6 +415,28 @@
   .flightplanner button.full {width:100%;}
   .flightplanner .btnrow {display:flex;gap:7px;margin:9px 0;flex-wrap:wrap;}
   .flightplanner .twofields {display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
+  .flightplanner .flightinputs {display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:8px;align-items:end;}
+  .flightplanner .flightinputs input {min-width:0; width:100%; color-scheme:dark;}
+  .fr-profile-panel {position:fixed;z-index:8000;bottom:75px;left:0;right:0;background:#1c2633;border-top:2px solid #d28e46;box-shadow:0 -7px 22px rgba(0,0,0,.44);color:#f5f7fa;padding:9px 10px 7px;font:12px/1.35 system-ui, sans-serif;max-height:42vh;overflow:hidden;}
+  .fr-profile-head {display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 8px;}
+  .fr-profile-head strong {font-size:14px;display:block;}
+  .fr-profile-head span {font-size:11px;color:#cbd4df;display:block;margin-top:3px;}
+  .fr-profile-head button {background:#364454;color:#fff;border:1px solid #6a7b8e;border-radius:5px;padding:7px 12px;cursor:pointer;}
+  .fr-profile-tools {display:flex;gap:8px;align-items:center;}
+  .fr-profile-tools label {font-size:11px;color:#d3dce6;}
+  .fr-profile-tools select {background:#344457;color:#fff;border:1px solid #68788b;border-radius:5px;font-size:12px;padding:6px;}
+  .fr-profile-grid small {display:block;font-size:10px;opacity:.8;}
+  .fr-profile-scroll {overflow:auto;max-height:28vh;}
+  .fr-profile-grid {display:grid;gap:1px;background:#43556b;min-width:max-content;}
+  .fr-profile-grid>div,.fr-profile-grid>button {background:#253446;border:0;border-radius:0;text-align:center;color:#eef4fa;padding:7px 4px;min-height:27px;font:11px/1.35 system-ui,sans-serif;}
+  .fr-profile-grid .fr-profile-heading {position:sticky;left:0;z-index:1;display:flex;align-items:center;justify-content:center;background:#16293c;color:#e4bb86;font-weight:700;width:86px;}
+  .fr-profile-grid button {cursor:pointer;background:#344b64;}
+  .fr-profile-grid button.fr-active {background:#1665ac;outline:2px solid #84cdff;outline-offset:-2px;}
+  .fr-profile-grid button b,.fr-profile-grid button small {display:block;white-space:nowrap;}
+  .fr-profile-grid button small {font-size:10px;opacity:.84;}
+  .fr-profile-grid .fr-isa {color:#ffd09b;}
+  .fr-profile-note {font-size:10px;color:#b7c8d9;margin:7px 0 0;}
+  @media(max-width:520px) {.flightplanner .flightinputs {grid-template-columns:1fr 1fr;} .flightplanner .flightinputs>div:last-child{grid-column:span 2;} .fr-profile-panel {bottom:55px;max-height:50vh;} }
   .flightplanner .small {font-size:11px;line-height:1.5;color:#bfc6cf;margin:7px 0;}
   .flightplanner .muted {color:#8f9aa7;font-size:10px;}
   .flightplanner .disclaimer {background:#402e22;color:#ffce96;padding:8px;border-left:3px solid #e89542;font-size:11px;}
