@@ -1,7 +1,7 @@
 import type { ExternalPluginConfig } from '@windy/interfaces';
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-flight-route-analyzer',
-  version: '1.0.3',
+  version: '1.1.0',
   icon: '✈️',
   title: 'Flight Route Analyzer',
   description: 'Визуализация маршрута ICAO, GPX для Windy и настройки навигационных баз; не для оперативной навигации.',

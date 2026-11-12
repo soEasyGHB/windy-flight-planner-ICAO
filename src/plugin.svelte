@@ -6,7 +6,7 @@
     <section class="fr-card" aria-labelledby="fr-section-route">
       <h3 id="fr-section-route">Ввод маршрута</h3>
       <label for="fr-route-input">Маршрут OFP / ICAO</label>
-      <textarea id="fr-route-input" bind:value={routeText} on:input={routeInputChanged} rows="4" spellcheck="false" placeholder="EHAM DCT EDDF DCT LTFM DCT OMDB"></textarea>
+      <textarea id="fr-route-input" bind:value={routeText} on:input={routeInputChanged} rows="8" spellcheck="false" placeholder="EHAM DCT EDDF DCT LTFM DCT OMDB"></textarea>
       <div class="fr-buttons">
         <button type="button" class="primary" on:click={runRoute}>Построить маршрут</button>
         <button type="button" on:click={clearRoute}>Очистить</button>
@@ -27,7 +27,6 @@
       </div>
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
-        <button type="button" on:click={openNativePlanner}>Открыть штатный планировщик Windy</button>
         {#if windyPlannerUrl}
           <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={noteWindyPlannerOpen}>Открыть маршрут с UTC в Windy</a>
         {:else}
@@ -99,7 +98,6 @@
 
 <script lang="ts">
   import bcast from '@windy/broadcast';
-  import {store} from '@windy/store';
   import {map} from '@windy/map';
   import {onMount,onDestroy} from 'svelte';
   import config from './pluginConfig';
@@ -294,32 +292,6 @@
     const issues=routeIssues(parsed);
     status=`Маршрут: ${parsed.points.length} точек, ${Math.round(parsed.distanceNm)} NM по подтверждённым отрезкам. ${issues.length?`Предупреждений: ${issues.length}.`:'Разрывов не обнаружено.'}`;
   }
-  function openNativePlanner():void {
-    // Sync the Windy forecast timeline to selected UTC ETD. This is the documented
-    // public store; it does not pass our route or configure the planner itself.
-    // Windy can reject out-of-range timestamps, and its native planner may ignore
-    // the map timestamp. We report those limitations rather than claiming success.
-    let timeMessage='';
-    try {
-      const target=Date.parse(departureIsoUtc(etdDate,etdTime));
-      store.set('timestamp',target);
-      const actual=Number(store.get('timestamp'));
-      timeMessage=Number.isFinite(actual) && Math.abs(actual-target)<=30*60*1000
-        ? `Время прогноза Windy синхронизировано с ${etdDate} ${etdTime} UTC${actual===target?'':' (с округлением модели)'}. Время старта в планировщике проверь отдельно.`
-        : `Windy не принял ${etdDate} ${etdTime} UTC (возможно, за пределами прогноза). Время в планировщике установи вручную.`;
-    } catch(err) {
-      timeMessage='Не удалось синхронизировать UTC с Windy: '+String(err)+'. Время начала проверь вручную.';
-    }
-    try {
-      // Open native planner with no route, TAS, FL or other flight parameters.
-      bcast.emit('rqstOpen','rplanner');
-      status=timeMessage;
-    } catch(err) {
-      status='Не удалось открыть встроенный планировщик: '+String(err)+'. '+timeMessage;
-      try {window.open('https://www.windy.com/distance','_blank','noopener,noreferrer');}
-      catch(openErr){status+=' Не удалось открыть резервную ссылку: '+String(openErr);}
-    }
-  }
   function noteWindyPlannerOpen():void {
     // The native IFR planner is opened by the actual href (no undocumented
     // bcast payload, GPX-upload API or delayed window.open()).
@@ -406,15 +378,15 @@
   .flightplanner .fr-card {border:1px solid #87909a;border-radius:16px;background:#56616d;padding:16px;min-width:0;}
   .flightplanner .fr-card h3 {font-size:15px;margin:0 0 12px;color:#fff;text-align:center;}
   .flightplanner .fr-card label {color:#f7f9fa;display:block;margin-bottom:7px;}
-  .flightplanner .fr-card textarea {background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;resize:vertical;width:100%;box-sizing:border-box;font-size:14px;padding:9px;min-height:86px;}
+  .flightplanner .fr-card textarea {background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;resize:vertical;width:100%;box-sizing:border-box;font-size:14px;padding:9px;min-height:172px;}
   .flightplanner .fr-card textarea::placeholder {color:#e1e5e8;}
   .flightplanner button {border-radius:8px;min-height:44px;padding:9px 12px;box-sizing:border-box;font:inherit;cursor:pointer;}
   .flightplanner button:disabled {opacity:.55;cursor:not-allowed;}
   .flightplanner .primary {background:#d8ecff;color:#173f5d;border:1px solid #8ea9bd;font-weight:700;}
-  .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:11px;max-width:220px;margin:0 auto 15px;}
+  .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:7px;max-width:220px;margin:0 auto 11px;}
   .flightplanner .fr-etd-stack > div {width:100%;min-width:0;text-align:center;}
-  .flightplanner .fr-etd-stack label {display:block;text-align:center;}
-  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;padding:8px 10px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:14px;color-scheme:dark;}
+  .flightplanner .fr-etd-stack label {display:block;text-align:center;font-size:12px;line-height:14px;margin-bottom:2px;}
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:28px;min-height:28px;padding:2px 8px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
   .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button,.flightplanner .fr-export-actions > a {flex:1 1 160px;text-align:center;}
   .flightplanner .fr-force-handoff {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}

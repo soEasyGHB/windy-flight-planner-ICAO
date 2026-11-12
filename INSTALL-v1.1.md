@@ -1,6 +1,6 @@
-# Установка Windy Flight Route Analyzer v1.0.3
+# Установка Windy Flight Route Analyzer v1.1
 
-## Новая кнопка «Открыть маршрут с UTC в Windy»
+## Кнопка «Открыть маршрут с UTC в Windy»
 
 1. Введи маршрут ICAO/OFP и нажми **«Построить маршрут»**. Дождись загрузки навигационной базы, если FIX ещё не распознаются.
 2. В разделе «Планировщик полёта» выбери **дату и время вылета UTC**. Поля находятся друг под другом.
@@ -16,14 +16,15 @@
 - Если часть FIX неизвестна, выберется **только самый длинный подтверждённый непрерывный участок**; соединять неизвестные части нельзя. Предупреждения находятся в «Настройки → Ошибки и предупреждения».
 - Открытие новой вкладки может зависеть от разрешений браузера/iPad. Ссылка является обычным `href` для надёжного открытия пользовательским нажатием.
 - Отображение имён FIX внутри штатного Windy определяется самим сервисом. В GPX они остаются записанными.
-- Две предыдущие кнопки **«Скачать GPX»** и **«Открыть штатный планировщик Windy»** сохранены.
+- В версии 1.1 оставлены только **«Скачать GPX»** и **«Открыть маршрут с UTC в Windy»**. Кнопка открытия пустого планировщика убрана.
+- Поле OFP/ICAO увеличено до 8 строк, поля выбора UTC — компактные, остаются одно под другим по центру.
 
 ## Установка из ZIP в GitHub Codespaces
 
-Загрузи `Windy-Flight-Route-Analyzer-FULL-v1.0.3.zip` в корень репозитория и запусти:
+Загрузи `Windy-Flight-Route-Analyzer-FULL-v1.1.zip` в корень репозитория и запусти:
 
 ```bash
-unzip -o Windy-Flight-Route-Analyzer-FULL-v1.0.3.zip
+unzip -o Windy-Flight-Route-Analyzer-FULL-v1.1.zip
 npm run cleanup:legacy
 npm install --no-audit --no-fund
 npm run test:release
@@ -34,7 +35,7 @@ npm run test:release
 ```bash
 git add -A -- . ':(exclude)*.zip' ':(exclude)*.sha256'
 git status --short
-git commit -m "Use working Windy IFR planner URL v1.0.3"
+git commit -m "Release compact Windy Flight Route Analyzer v1.1"
 git push origin main
 ```
 
