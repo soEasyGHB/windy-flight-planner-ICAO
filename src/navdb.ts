@@ -276,18 +276,49 @@ export function githubUploadUrl(repoUrl:string):string {
  * Unknown fixes still create gaps through parseRoute; never invent coordinates.
  * Works even when an airway (e.g. Y12) is absent from uploaded AIRAC CSV.
  */
+/** Skip a terminal SID/STAR designator only when it is near the airport.
+ * Unlike named fixes, procedures have no known geometry in our database.
+ * Do not silently skip unknown enroute FIX, ICAO coordinates or known points.
+ */
+function looksLikeUnknownTerminalProcedure(token:string):boolean {
+  return /^(?=.{4,10}$)(?=.*[A-Z])(?=.*\d)[A-Z0-9]+$/.test(token) &&
+    !DB.has(token) && !AIRWAYS.has(token) && !coordFix(token) &&
+    !/^(?:FL\d{2,3}|F\d{3}|S\d{4}|N\d{4}F\d{3})$/.test(token);
+}
+
 export function parseNamedFixRoute(text:string):ParsedRoute {
   const raw=text.replace(/[\n\r]+/g,' ').split(/\s+/).filter(Boolean);
-  const kept:string[]=[],removed:string[]=[];
-  for(let i=0;i<raw.length;i++) {
-    const token=normalizeRouteToken(raw[i],i===0||i===raw.length-1);
-    // These patterns are airway designators, not ICAO coordinates or speed/FL.
-    const resemblesAirway=/^(?:[A-Z]{1,2}\d{1,5}[A-Z]?)$/.test(token);
+  const normalized=raw.map((item,i)=>normalizeRouteToken(item,i===0||i===raw.length-1));
+  const procedureIndices=new Set<number>();
+  // Ignore DCT and ATS designators when looking for a terminal procedure.
+  // Stop at the first real fix, to avoid concealing missing enroute fixes.
+  const isConnector=(token:string)=>['DCT','IFR','VFR'].includes(token) ||
+    AIRWAYS.has(token) || /^[A-Z]{1,2}\d{1,5}[A-Z]?$/.test(token);
+  const scanTerminal=(atStart:boolean)=>{
+    const airport=normalized[atStart?0:normalized.length-1]??'';
+    if(!/^[A-Z]{4}$/.test(airport))return;
+    const step=atStart?1:-1;
+    for(let i=atStart?1:normalized.length-2;i>0&&i<normalized.length-1;i+=step){
+      const token=normalized[i];
+      if(isConnector(token))continue;
+      if(looksLikeUnknownTerminalProcedure(token)){procedureIndices.add(i);continue;}
+      break;
+    }
+  };
+  scanTerminal(true);
+  scanTerminal(false);
+  const kept:string[]=[],removed:string[]=[],procedures:string[]=[];
+  for(let i=0;i<normalized.length;i++) {
+    const token=normalized[i];
+    if(procedureIndices.has(i)){procedures.push(token);continue;}
+    const resemblesAirway=/^[A-Z]{1,2}\d{1,5}[A-Z]?$/.test(token);
     if(AIRWAYS.has(token) || resemblesAirway) {removed.push(token);continue;}
     kept.push(token);
   }
   const parsed=parseRoute(kept.join(' '));
-  return {...parsed,skipped:[...parsed.skipped,...removed.map(item=>'ATS omitted: '+item)]};
+  return {...parsed,skipped:[...parsed.skipped,
+    ...removed.map(item=>'ATS omitted: '+item),
+    ...procedures.map(item=>'Terminal SID/STAR omitted: '+item)]};
 }
 
 /** Safe route reconstruction: unknown ATS or missing FIX are never linked with a false line. */

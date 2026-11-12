@@ -1,5 +1,5 @@
 /** Remove only known deprecated files from v0.10.x installations; never touch navdata CSV. */
-import {rmSync,readdirSync} from 'node:fs';
+import {rmSync,readdirSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 const known=[
   'src/offlineReport.ts','src/weather.ts','src/tropopause.ts','src/flightAltitude.ts',
@@ -15,13 +15,19 @@ const known=[
   'tests/test_visual_route_v086.mjs','tests/test_weather.mjs',
   'tests/test_gpx_export_v0104.mjs','tests/test_windy_distance_link_v0105.mjs'
 ];
+const currentVersion=JSON.parse(readFileSync('package.json','utf8')).version;
 let count=0;
 for(const filename of known){
   try{rmSync(filename);count++;}catch(err){if(err.code!=='ENOENT')throw err;}
 }
 for(const filename of readdirSync('.')){
   if(/^(?:AUDIT|INSTALL)-v\d+\.\d+(?:\.\d+)?(?:-iPad)?\.md$/.test(filename)&&
-    !/v0\.11\.1\.md$/.test(filename)){
+    !filename.endsWith(`-v${currentVersion}.md`) &&
+    !filename.endsWith(`-v${currentVersion.replace(/\.0$/,'')}.md`)){
+    rmSync(join('.',filename));count++;
+  }
+  // Release archives do not belong in source control after extraction.
+  if(/^Windy-Flight-Route-Analyzer-FULL-v[\d.]+\.(?:zip|sha256)$/.test(filename)){
     rmSync(join('.',filename));count++;
   }
 }

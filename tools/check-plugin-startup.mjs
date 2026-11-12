@@ -34,7 +34,14 @@ try {
     'svelte':{onMount(){},onDestroy(){}},
     './pluginConfig':{default:{title:'Flight Route Analyzer'}},
     './navdataConfig':{NAVDATA_GITHUB_REPO:'https://example.invalid'},
+    './routeGpx':{
+      departureIsoUtc:(date,time)=>`${date}T${time}:00Z`
+    },
     './gpxDownload':{
+      prepareGpxPayload:(route,options)=>({
+        xml:`<gpx>${options.departureUtc}</gpx>`,filename:'route.gpx',partial:false,pointCount:2,routeCount:1
+      }),
+      createGpxHref:()=> 'blob:new-dated-gpx',
       makeGpxShareFile:()=>({name:'route.gpx'}),
       triggerGpxDownload:(href,filename)=>downloadedFiles.push([href,filename])
     }
@@ -69,7 +76,11 @@ try {
   assert.deepEqual(fallbackUrls[0],[
     'https://www.windy.com/distance','_blank','noopener,noreferrer'
   ]);
-  console.log('PASS: Svelte initialization, blank native planner, iPad sharing, GPX fallback and planner URL fallback');
+  await vm.runInContext('parsed={segments:[]};etdDate="2026-11-13";etdTime="01:20";departureInputChanged()',sandbox,{timeout:2000});
+  assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-13T01:20:00Z</gpx>',
+    'Changing UTC fields should regenerate GPX without a new route build');
+  assert.equal(vm.runInContext('gpxDownloadHref',sandbox),'blob:new-dated-gpx');
+  console.log('PASS: Svelte initialization, UTC ETD regenerates GPX, blank native planner, iPad sharing and fallback');
 }finally{
   rmSync(entry,{force:true});rmSync(temp,{recursive:true,force:true});
 }

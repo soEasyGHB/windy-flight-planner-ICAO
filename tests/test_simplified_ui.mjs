@@ -7,18 +7,27 @@ const settings=markup.split('<details class="fr-settings">')[1];
 assert.equal((main.match(/class="fr-card"/g)||[]).length,2,'Only route and GPX cards on home');
 assert(main.includes('id="fr-section-route"'));
 assert(main.includes('id="fr-section-export"'));
+assert(main.includes('class="fr-etd-stack"'), 'Stacked centered UTC inputs');
+assert(main.includes('id="fr-etd-date" type="date" bind:value={etdDate}'));
+assert(main.includes('id="fr-etd-time" type="time" step="60" bind:value={etdTime}'));
+assert(main.includes('on:change={departureInputChanged}'));
+assert(src.includes('margin:0 auto 15px'), 'Center UTC input column');
+assert(src.includes('prepareGpxPayload(parsed,{departureUtc})'), 'GPX must contain departure UTC');
 assert(main.includes('on:click={sharePlannerGpx}>Скачать GPX</button>'),'Share GPX renamed to download');
 assert(main.includes('on:click={openNativePlanner}>Открыть штатный планировщик Windy</button>'),'Native planner button');
 assert.equal((main.match(/<button\b/g)||[]).length,4,'Only route/clear, share GPX and native planner buttons');
 assert(!main.includes('download={gpxFileName}'),'No third GPX download link');
 assert(!main.includes('disabled={busy}'),'GPX independent from database fetch');
+assert(!main.includes('Частичный GPX готов'),'GPX status must not appear on home');
+assert(!main.includes('gpxFeedback}'),'Move GPX status under diagnostic settings');
+assert(settings.includes('class:fr-warning={gpxIsPartial}'),'GPX status in diagnostics');
 assert.equal((settings.match(/class="fr-settings-group"/g)||[]).length,2,'Only database and warning settings');
 assert(settings.includes('Навигационные базы данных'));
 assert(settings.includes('Ошибки и предупреждения'));
 assert(settings.includes('bind:checked={showDiagnostics}'));
 assert(settings.includes('routeIssues(parsed)'));
 for(const forbidden of [
- 'fr-section-weather','fr-section-our-planner','fr-etd-date','fr-etd-time','fr-profile-panel',
+ 'fr-section-weather','fr-section-our-planner','fr-profile-panel',
  'Сохранить HTML','Открыть для PDF','Открыть маршрут в штатном планировщике Windy',
  'Получить профиль','Open-Meteo','Выбор слоя погоды','CSV отчёт','fr-report-shot',
  'showReportWeatherLayer','openWeatherProfile','loadWeather(','weatherFL','profileViz',
@@ -32,4 +41,4 @@ assert(src.includes('clearGpxDownload();clearMap();'),'Revoke temporary GPX on d
 assert(!src.match(/\bstore\.set\(/),'Do not modify Windy weather layer');
 assert(src.includes("bcast.emit('rqstOpen','rplanner');"),'Open Windy planner with no extra arguments');
 assert(!src.includes('buildWindyPlannerRequest'),'No route forwarding');
-console.log('PASS: two main cards, one GPX share/download and native planner; exactly two settings, removed offline/weather/planners, startup separated');
+console.log('PASS: centered stacked departure UTC fields, GPX + native planner; exactly two settings, removed offline/weather/planners');

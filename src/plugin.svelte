@@ -15,11 +15,20 @@
 
     <section class="fr-card" aria-labelledby="fr-section-export">
       <h3 id="fr-section-export">Планировщик полёта</h3>
+      <div class="fr-etd-stack" role="group" aria-label="Дата и время вылета UTC">
+        <div>
+          <label for="fr-etd-date">Дата вылета (UTC)</label>
+          <input id="fr-etd-date" type="date" bind:value={etdDate} on:change={departureInputChanged} />
+        </div>
+        <div>
+          <label for="fr-etd-time">Время вылета (UTC)</label>
+          <input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={departureInputChanged} />
+        </div>
+      </div>
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
         <button type="button" on:click={openNativePlanner}>Открыть штатный планировщик Windy</button>
       </div>
-      <p class:fr-warning={gpxIsPartial} class="fr-feedback" role="status" aria-live="polite">{gpxFeedback}</p>
     </section>
   </div>
 
@@ -34,6 +43,7 @@
             Показывать подробные ошибки и предупреждения
           </label>
           {#if showDiagnostics}
+            <p class:fr-warning={gpxIsPartial} class="fr-feedback" role="status" aria-live="polite">{gpxFeedback}</p>
             <p class="fr-info" role="status" aria-live="polite">{status}</p>
             {#if parsed}
               <p class="fr-small">Точек: {parsed.points.length}; подтверждённая длина: {Math.round(parsed.distanceNm)} NM; подписей: {labeledCount}.</p>
@@ -86,7 +96,7 @@
   import config from './pluginConfig';
   import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
-  import {routeIssues} from './routeGpx';
+  import {routeIssues,departureIsoUtc} from './routeGpx';
   import {prepareGpxPayload,createGpxHref,makeGpxShareFile,triggerGpxDownload} from './gpxDownload';
   import type {ParsedRoute} from './navdb';
 
@@ -94,7 +104,11 @@
   const repoUrl=NAVDATA_GITHUB_REPO;
   const SAVED_ROUTE_KEY='windy-flight-route-analyzer:route:v2';
   const SETTINGS_KEY='windy-flight-route-analyzer:settings:v2';
+  const DEPARTURE_KEY='windy-flight-route-analyzer:departure:v1';
+  const initialETD=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
   let routeText='EHAM DCT EDDF DCT LTFM DCT OMDB';
+  let etdDate=initialETD.slice(0,10);
+  let etdTime=initialETD.slice(11,16);
   let showDiagnostics=true;
   let status='Навигационная база загружается.';
   let parsed:ParsedRoute|null=null;
@@ -119,6 +133,16 @@
   function saveRoute():void {
     try {localStorage.setItem(SAVED_ROUTE_KEY,routeText);} catch (_err) { /* private mode */ }
   }
+  function saveDeparture():void {
+    try {
+      departureIsoUtc(etdDate,etdTime);
+      localStorage.setItem(DEPARTURE_KEY,JSON.stringify({etdDate,etdTime}));
+    } catch (_err) { /* invalid entry or private mode: do not save */ }
+  }
+  function departureInputChanged():void {
+    saveDeparture();
+    prepareGpxDownload();
+  }
   function savePreferences():void {
     try {localStorage.setItem(SETTINGS_KEY,JSON.stringify({showDiagnostics}));} catch (_err) { /* private mode */ }
   }
@@ -132,6 +156,18 @@
         if(legacy){
           const data=JSON.parse(legacy) as {routeText?:unknown};
           if(typeof data.routeText==='string'&&data.routeText.length<=50000)routeText=data.routeText;
+        }
+      }
+      let departure=localStorage.getItem(DEPARTURE_KEY);
+      // One-time migration from the previous flight planner, retaining ETD only.
+      if(!departure)departure=localStorage.getItem('windy-flight-route-analyzer:flight:v1');
+      if(departure){
+        const value=JSON.parse(departure) as {etdDate?:unknown;etdTime?:unknown};
+        if(typeof value.etdDate==='string'&&typeof value.etdTime==='string'){
+          try {
+            departureIsoUtc(value.etdDate,value.etdTime);
+            etdDate=value.etdDate;etdTime=value.etdTime;
+          } catch (_err) { /* Keep a valid default for invalid saved ETD */ }
         }
       }
       const prefs=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}') as {showDiagnostics?:unknown};
@@ -148,14 +184,15 @@
     clearGpxDownload();
     if(!parsed){gpxFeedback='Сначала построй маршрут.';return;}
     try {
-      const item=prepareGpxPayload(parsed);
+      const departureUtc=departureIsoUtc(etdDate,etdTime);
+      const item=prepareGpxPayload(parsed,{departureUtc});
       gpxXml=item.xml;
       gpxFileName=item.filename;
       gpxIsPartial=item.partial;
       gpxDownloadHref=createGpxHref(item);
       gpxFeedback=item.partial
-        ? `Частичный GPX готов: ${item.pointCount} точек, ${item.routeCount} отдельных участка(ов). Проверь разрывы и неоднозначные FIX.`
-        : `GPX готов: ${item.pointCount} точек. Нажми «Скачать GPX», чтобы сохранить файл через меню iPad.`;
+        ? `Частичный GPX готов: ${item.pointCount} точек, ${item.routeCount} отдельных участка(ов). ETD ${etdDate} ${etdTime} UTC записано в файл. Проверь разрывы и неоднозначные FIX.`
+        : `GPX готов: ${item.pointCount} точек. ETD ${etdDate} ${etdTime} UTC записано в файл. Нажми «Скачать GPX».`;
     } catch(err) {
       gpxFeedback='GPX недоступен: '+String(err);
       status=gpxFeedback;
@@ -316,7 +353,7 @@
     catch(err){console.error('Initial route error',err);status='Ошибка запуска: '+String(err);}
     void (async()=>{await updateHosted();await reloadSources();})();
   });
-  onDestroy(()=>{saveRoute();savePreferences();clearGpxDownload();clearMap();});
+  onDestroy(()=>{saveRoute();saveDeparture();savePreferences();clearGpxDownload();clearMap();});
 </script>
 
 <style lang="less">
@@ -330,6 +367,10 @@
   .flightplanner button {border-radius:8px;min-height:44px;padding:9px 12px;box-sizing:border-box;font:inherit;cursor:pointer;}
   .flightplanner button:disabled {opacity:.55;cursor:not-allowed;}
   .flightplanner .primary {background:#d8ecff;color:#173f5d;border:1px solid #8ea9bd;font-weight:700;}
+  .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:11px;max-width:220px;margin:0 auto 15px;}
+  .flightplanner .fr-etd-stack > div {width:100%;min-width:0;text-align:center;}
+  .flightplanner .fr-etd-stack label {display:block;text-align:center;}
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;padding:8px 10px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:14px;color-scheme:dark;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
   .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button {flex:1 1 160px;text-align:center;}
   .flightplanner .fr-feedback {font-size:12px;color:#e7f0f8;margin:11px 0 0;line-height:1.5;}

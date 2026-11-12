@@ -10,3 +10,7 @@ tests/generated/
 
 # Uploaded raw navdata is not included in the full distribution.
 navdata-input/*.dat
+
+# Import archives / checksum downloads are not source files.
+Windy-Flight-Route-Analyzer-FULL-v*.zip
+Windy-Flight-Route-Analyzer-FULL-v*.sha256

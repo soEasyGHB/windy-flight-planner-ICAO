@@ -5,8 +5,8 @@ import {makeRouteGpx} from './routeGpx';
 export const GPX_MIME='application/gpx+xml';
 export type GpxPayload={xml:string;filename:string;partial:boolean;pointCount:number;routeCount:number};
 
-export function prepareGpxPayload(route:ParsedRoute):GpxPayload {
-  const xml=makeRouteGpx(route,{allowPartial:true,acceptAmbiguous:true});
+export function prepareGpxPayload(route:ParsedRoute,options:{departureUtc?:string}={}):GpxPayload {
+  const xml=makeRouteGpx(route,{allowPartial:true,acceptAmbiguous:true,departureUtc:options.departureUtc});
   const pointCount=(xml.match(/<rtept /g)||[]).length;
   const routeCount=(xml.match(/<rte>/g)||[]).length;
   const partial=route.gaps.length>0||route.unresolved.length>0||route.airwayNames.length>0||

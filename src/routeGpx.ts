@@ -1,6 +1,17 @@
 /** GPX export of verified portions of a user-supplied ICAO route. */
 import type {ParsedRoute,RoutePoint} from './navdb';
 
+/** Convert explicit UTC departure date/time to an ISO timestamp, rejecting overflow. */
+export function departureIsoUtc(date:string,time:string):string {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^\d{2}:\d{2}$/.test(time))
+    throw Error('Укажи дату и время вылета UTC');
+  const result=`${date}T${time}:00Z`;
+  const millis=Date.parse(result);
+  if(!Number.isFinite(millis)||new Date(millis).toISOString()!==`${date}T${time}:00.000Z`)
+    throw Error('Неверная дата или время вылета UTC');
+  return result;
+}
+
 const valid=(p:{lat:number;lon:number})=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180;
 const verifiedSegments=(route:ParsedRoute):RoutePoint[][]=>route.segments
   .map(s=>s.filter(valid)).filter(s=>s.length>=2);
@@ -17,18 +28,35 @@ export function routeIssues(route:ParsedRoute):string[] {
  * Separate <rte> elements keep disconnected verified legs from being linked.
  * Windy's import behavior is version-dependent; this is standard GPX 1.1.
  */
-export function makeRouteGpx(route:ParsedRoute,options:{allowPartial?:boolean;acceptAmbiguous?:boolean}={}):string {
+export function makeRouteGpx(route:ParsedRoute,options:{allowPartial?:boolean;acceptAmbiguous?:boolean;departureUtc?:string}={}):string {
   const segments=verifiedSegments(route);
   if(!segments.length)throw Error('Нет подтверждённых участков маршрута для GPX');
   const partial=segments.length!==1||route.gaps.length>0||route.unresolved.length>0||route.airwayNames.length>0||route.ambiguous.length>0;
   if(partial&&!options.allowPartial)throw Error('Маршрут неполный; выбери частичный экспорт');
   if(route.ambiguous.length&&!options.acceptAmbiguous)throw Error('Неоднозначные координаты требуют проверки');
+  const departureUtc=options.departureUtc;
+  if(departureUtc!==undefined && departureIsoUtc(departureUtc.slice(0,10),departureUtc.slice(11,16))!==departureUtc)
+    throw Error('Неверное время вылета UTC для GPX');
   const esc=(s:string)=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
   const fmt=(n:number)=>n.toFixed(7);
   const namedSegments=segments.map(segment=>segment.filter(p=>p.showLabel && p.type!=='ATS' && !p.synthetic && valid(p))
     .filter((p,i,all)=>i===0 || p.ident!==all[i-1].ident || Math.abs(p.lat-all[i-1].lat)>1e-6 || Math.abs(p.lon-all[i-1].lon)>1e-6))
     .filter(s=>s.length>=2);
   if(!namedSegments.length)throw Error('Не найдено непрерывного участка с двумя именованными точками');
-  const routes=namedSegments.map((segment,i)=>`<rte><name>${esc((partial?'PARTIAL - ':'')+`Flight route ${i+1}`)}</name>${segment.map(p=>`<rtept lat="${fmt(p.lat)}" lon="${fmt(p.lon)}"><name>${esc(p.ident)}</name></rtept>`).join('')}</rte>`).join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Windy Flight Route Analyzer" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${partial?'PARTIAL - ':''}Flight route (named fixes only)</name><desc>${partial?'Incomplete segments are deliberately separate. ':''}Contains only user-named fixes, not ATS intermediate vertices. For weather visualization, not navigation.</desc></metadata>${routes}</gpx>`;
+  // Use both named route points and independent GPX waypoints. Windy may still
+  // number route nodes, but apps that honor GPX <wpt>/<rtept><name> can show FIX names.
+  const seen=new Set<string>();
+  const waypoints=namedSegments.flat().filter(p=>{
+    const key=`${p.ident}/${p.lat.toFixed(7)}/${p.lon.toFixed(7)}`;
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  }).map(p=>`<wpt lat="${fmt(p.lat)}" lon="${fmt(p.lon)}"><name>${esc(p.ident)}</name><cmt>${esc(p.ident)}</cmt><sym>Waypoint</sym></wpt>`).join('\n');
+  const routes=namedSegments.map((segment,i)=>`<rte><name>${esc((partial?'PARTIAL - ':'')+`Flight route ${i+1}`)}</name>${segment.map(p=>`<rtept lat="${fmt(p.lat)}" lon="${fmt(p.lon)}"><name>${esc(p.ident)}</name><cmt>${esc(p.ident)}</cmt></rtept>`).join('')}</rte>`).join('\n');
+  // GPX 1.1 metadata/time means *file creation time*, NOT planned departure.
+  // Store ETD correctly as an explicit planned-departure extension plus readable
+  // metadata description; never fabricate timestamps for downstream fixes.
+  const etdLabel=departureUtc?` Planned departure UTC: ${departureUtc}.`:'';
+  const etdExtension=departureUtc?`<extensions><fr:plannedDepartureUtc>${departureUtc}</fr:plannedDepartureUtc></extensions>`:'';
+  const extraNs=departureUtc?' xmlns:fr="urn:windy-flight-route-analyzer:flight:1"':'';
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Windy Flight Route Analyzer" xmlns="http://www.topografix.com/GPX/1/1"${extraNs}><metadata><name>${partial?'PARTIAL - ':''}Flight route (named fixes only)</name><desc>${partial?'Incomplete segments are deliberately separate. ':''}Contains only user-named fixes, not ATS intermediate vertices. For weather visualization, not navigation.${etdLabel}</desc>${etdExtension}</metadata>${waypoints}${routes}</gpx>`;
 }
