@@ -13,7 +13,7 @@ const required=[
   'public/index.html','public/navdata/.gitkeep','navdata-input/README.md',
   'tests/test.mjs','tests/test_xplane.mjs','tests/test_github_snapshot.mjs',
   'tests/test_route_gpx.mjs','tests/test_gpx_download.mjs','tests/test_simplified_ui.mjs',
-  'tests/test_navdata_converter.py','INSTALL-v1.0.md','AUDIT-v1.0.md','README.md'
+  'tests/test_navdata_converter.py','INSTALL-v1.0.1.md','AUDIT-v1.0.1.md','README.md'
 ];
 for(const filename of required)assert(existsSync(filename),`Required release file missing: ${filename}`);
 const obsolete=[

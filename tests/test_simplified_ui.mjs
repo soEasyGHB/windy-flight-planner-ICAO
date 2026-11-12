@@ -12,7 +12,7 @@ assert(main.includes('id="fr-etd-date" type="date" bind:value={etdDate}'));
 assert(main.includes('id="fr-etd-time" type="time" step="60" bind:value={etdTime}'));
 assert(main.includes('on:change={departureInputChanged}'));
 assert(src.includes('margin:0 auto 15px'), 'Center UTC input column');
-assert(src.includes('prepareGpxPayload(parsed,{departureUtc})'), 'GPX must contain departure UTC');
+assert(src.includes('prepareGpxPayload(parsed,{departureUtc,routeText})'), 'GPX must contain departure UTC');
 assert(main.includes('on:click={sharePlannerGpx}>Скачать GPX</button>'),'Share GPX renamed to download');
 assert(main.includes('on:click={openNativePlanner}>Открыть штатный планировщик Windy</button>'),'Native planner button');
 assert.equal((main.match(/<button\b/g)||[]).length,4,'Only route/clear, share GPX and native planner buttons');
@@ -38,7 +38,8 @@ for(const filename of readdirSync('src'))
 assert(src.indexOf('prepareGpxDownload();',src.indexOf('function runRoute()')) < src.indexOf('new L.Polyline',src.indexOf('function runRoute()')),
  'GPX must not depend on map drawing');
 assert(src.includes('clearGpxDownload();clearMap();'),'Revoke temporary GPX on destroy');
-assert(!src.match(/\bstore\.set\(/),'Do not modify Windy weather layer');
+assert(src.includes("store.set('timestamp',target)"),'Sync selected UTC with Windy forecast timestamp on opening');
+assert(!src.includes("store.set('overlay'"),'Do not modify Windy weather overlay');
 assert(src.includes("bcast.emit('rqstOpen','rplanner');"),'Open Windy planner with no extra arguments');
 assert(!src.includes('buildWindyPlannerRequest'),'No route forwarding');
 console.log('PASS: centered stacked departure UTC fields, GPX + native planner; exactly two settings, removed offline/weather/planners');

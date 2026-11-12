@@ -18,7 +18,10 @@ for(const [day,time] of [['2026-02-29','10:00'],['2026-13-01','10:00'],['2026-11
 const etdXml=makeRouteGpx(complete,{departureUtc:departureIsoUtc('2026-11-12','23:45')});
 assert(etdXml.includes('<fr:plannedDepartureUtc>2026-11-12T23:45:00Z</fr:plannedDepartureUtc>'));
 assert(etdXml.includes('Planned departure UTC: 2026-11-12T23:45:00Z'));
-assert(!etdXml.includes('<time>'), 'Do not misrepresent ETD as GPX file-creation or waypoint-passing time');
+assert.equal((etdXml.match(/<time>2026-11-12T23:45:00Z<\/time>/g)||[]).length,2,
+  'Only departure waypoint and departure rtept have known time');
+assert(!etdXml.includes('<metadata><time>'), 'GPX metadata time denotes file creation, not ETD');
+assert(!etdXml.includes('<rtept lat=\"50.'+'0379000\" lon=\"8.5622000\"><time>'), 'Do not invent waypoint passage times');
 assert.equal((etdXml.match(/<rtept /g)||[]).length,3);
 assert.throws(()=>makeRouteGpx(complete,{departureUtc:'2026-02-30T12:00:00Z'}),/UTC/);
 

@@ -25,11 +25,18 @@ try {
   assert.equal(unexpected.length,0,`Unresolved names:\n${unexpected.join('\n')}`);
   const compiled=readFileSync(output,'utf8');
   const plannerRequests=[];
+  const timestampChanges=[];
+  let windyTimestamp=0;
+  let rejectTimestamp=false;
   const fallbackUrls=[];
   const sharedFiles=[];
   const downloadedFiles=[];
   const fake={
     '@windy/broadcast':{default:{emit(...args){plannerRequests.push(args);}}},
+    '@windy/store':{store:{
+      set(key,value){assert.equal(key,'timestamp');timestampChanges.push(value);if(!rejectTimestamp)windyTimestamp=value;return !rejectTimestamp;},
+      get(key){assert.equal(key,'timestamp');return windyTimestamp;}
+    }},
     '@windy/map':{map:{removeLayer(){}}},
     'svelte':{onMount(){},onDestroy(){}},
     './pluginConfig':{default:{title:'Flight Route Analyzer'}},
@@ -57,7 +64,9 @@ try {
   vm.runInContext(compiled,sandbox,{timeout:2000});
   assert.equal(typeof exports.onopen,'function');
   assert.doesNotThrow(()=>exports.onopen());
-  vm.runInContext('openNativePlanner()',sandbox,{timeout:2000});
+  vm.runInContext('etdDate="2026-11-13";etdTime="01:20";openNativePlanner()',sandbox,{timeout:2000});
+  assert.deepEqual(timestampChanges,[Date.parse('2026-11-13T01:20:00Z')],'Windy forecast time must reflect selected UTC');
+  assert.equal(vm.runInContext('status',sandbox).includes('Время прогноза Windy синхронизировано'),true);
   assert.deepEqual(plannerRequests,[['rqstOpen','rplanner']],
     'Planner must open without route or flight parameters');
   assert.equal(fallbackUrls.length,0);
@@ -69,6 +78,12 @@ try {
   sandbox.navigator={};
   await vm.runInContext('sharePlannerGpx()',sandbox,{timeout:2000});
   assert.deepEqual(downloadedFiles,[['blob:test','route.gpx']]);
+  // A rejected Windy timeline update must still open native planner and give a warning.
+  rejectTimestamp=true;
+  vm.runInContext('etdTime="02:20";openNativePlanner()',sandbox,{timeout:2000});
+  assert.equal(vm.runInContext('status',sandbox).includes('Windy не принял'),true);
+  assert.equal(plannerRequests.length,2);
+  rejectTimestamp=false;
   // Fallback when the internal Windy planner event throws.
   fake['@windy/broadcast'].default.emit=()=>{throw new Error('unsupported');};
   vm.runInContext('openNativePlanner()',sandbox,{timeout:2000});
@@ -80,7 +95,7 @@ try {
   assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-13T01:20:00Z</gpx>',
     'Changing UTC fields should regenerate GPX without a new route build');
   assert.equal(vm.runInContext('gpxDownloadHref',sandbox),'blob:new-dated-gpx');
-  console.log('PASS: Svelte initialization, UTC ETD regenerates GPX, blank native planner, iPad sharing and fallback');
+  console.log('PASS: Svelte startup, UTC timestamp sync, Windy rejection and fallback, GPX share');
 }finally{
   rmSync(entry,{force:true});rmSync(temp,{recursive:true,force:true});
 }

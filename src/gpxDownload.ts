@@ -5,13 +5,33 @@ import {makeRouteGpx} from './routeGpx';
 export const GPX_MIME='application/gpx+xml';
 export type GpxPayload={xml:string;filename:string;partial:boolean;pointCount:number;routeCount:number};
 
-export function prepareGpxPayload(route:ParsedRoute,options:{departureUtc?:string}={}):GpxPayload {
+/** Filename uses verified airport ICAO endpoints, not arbitrary first/last FIX.
+ * Raw text (when available) prevents a misleading name if departure/arrival
+ * could not be resolved but a middle section of the route was parsed.
+ */
+export function gpxAirportPair(route:ParsedRoute,routeText?:string):string|null {
+  const first=route.points[0],last=route.points[route.points.length-1];
+  if(!first || !last || first===last)return null;
+  const isAirport=(p:typeof first)=>/^[A-Z]{4}$/.test(p.ident) && /airport/i.test(p.type) && p.showLabel;
+  if(!isAirport(first)||!isAirport(last))return null;
+  if(routeText!==undefined){
+    const tokens=routeText.toUpperCase().trim().split(/\s+/).filter(Boolean);
+    if(tokens.length<2)return null;
+    const endpoint=(token:string)=>token.match(/^([A-Z]{4})(?:\d{1,2}[LRC]?)?$/)?.[1];
+    if(endpoint(tokens[0])!==first.ident || endpoint(tokens[tokens.length-1])!==last.ident)return null;
+  }
+  return `${first.ident}-${last.ident}`;
+}
+
+export function prepareGpxPayload(route:ParsedRoute,options:{departureUtc?:string;routeText?:string}={}):GpxPayload {
   const xml=makeRouteGpx(route,{allowPartial:true,acceptAmbiguous:true,departureUtc:options.departureUtc});
   const pointCount=(xml.match(/<rtept /g)||[]).length;
   const routeCount=(xml.match(/<rte>/g)||[]).length;
   const partial=route.gaps.length>0||route.unresolved.length>0||route.airwayNames.length>0||
     route.ambiguous.length>0||route.segments.filter(s=>s.length>=2).length!==1;
-  return {xml,filename:partial?'windy-route-PARTIAL.gpx':'windy-flight-route.gpx',partial,pointCount,routeCount};
+  const pair=gpxAirportPair(route,options.routeText);
+  const basename=pair??'windy-route';
+  return {xml,filename:`${basename}${partial?'-PARTIAL':''}.gpx`,partial,pointCount,routeCount};
 }
 
 /** Use a stable Blob URL for a real anchor click. Do not create it inside an async callback. */

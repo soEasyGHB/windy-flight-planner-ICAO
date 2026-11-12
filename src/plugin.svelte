@@ -91,6 +91,7 @@
 
 <script lang="ts">
   import bcast from '@windy/broadcast';
+  import {store} from '@windy/store';
   import {map} from '@windy/map';
   import {onMount,onDestroy} from 'svelte';
   import config from './pluginConfig';
@@ -125,7 +126,7 @@
   let airways=0;
 
   let gpxDownloadHref='';
-  let gpxFileName='windy-flight-route.gpx';
+  let gpxFileName='windy-route.gpx';
   let gpxXml='';
   let gpxIsPartial=false;
   let gpxFeedback='Построй маршрут, чтобы подготовить GPX.';
@@ -185,14 +186,14 @@
     if(!parsed){gpxFeedback='Сначала построй маршрут.';return;}
     try {
       const departureUtc=departureIsoUtc(etdDate,etdTime);
-      const item=prepareGpxPayload(parsed,{departureUtc});
+      const item=prepareGpxPayload(parsed,{departureUtc,routeText});
       gpxXml=item.xml;
       gpxFileName=item.filename;
       gpxIsPartial=item.partial;
       gpxDownloadHref=createGpxHref(item);
       gpxFeedback=item.partial
-        ? `Частичный GPX готов: ${item.pointCount} точек, ${item.routeCount} отдельных участка(ов). ETD ${etdDate} ${etdTime} UTC записано в файл. Проверь разрывы и неоднозначные FIX.`
-        : `GPX готов: ${item.pointCount} точек. ETD ${etdDate} ${etdTime} UTC записано в файл. Нажми «Скачать GPX».`;
+        ? `Частичный GPX ${item.filename} готов: ${item.pointCount} точек, ${item.routeCount} отдельных участка(ов). ETD ${etdDate} ${etdTime} UTC записано в файл. Проверь разрывы и неоднозначные FIX.`
+        : `GPX ${item.filename} готов: ${item.pointCount} точек. ETD ${etdDate} ${etdTime} UTC записано в файл. Нажми «Скачать GPX».`;
     } catch(err) {
       gpxFeedback='GPX недоступен: '+String(err);
       status=gpxFeedback;
@@ -270,13 +271,27 @@
     status=`Маршрут: ${parsed.points.length} точек, ${Math.round(parsed.distanceNm)} NM по подтверждённым отрезкам. ${issues.length?`Предупреждений: ${issues.length}.`:'Разрывов не обнаружено.'}`;
   }
   function openNativePlanner():void {
+    // Sync the Windy forecast timeline to selected UTC ETD. This is the documented
+    // public store; it does not pass our route or configure the planner itself.
+    // Windy can reject out-of-range timestamps, and its native planner may ignore
+    // the map timestamp. We report those limitations rather than claiming success.
+    let timeMessage='';
     try {
-      // Opens Windy's built-in planner without passing our route, weather, TAS, FL or other parameters.
-      bcast.emit('rqstOpen','rplanner');
-      status='Запрошено открытие штатного планировщика Windy без передачи маршрута и параметров.';
+      const target=Date.parse(departureIsoUtc(etdDate,etdTime));
+      store.set('timestamp',target);
+      const actual=Number(store.get('timestamp'));
+      timeMessage=Number.isFinite(actual) && Math.abs(actual-target)<=30*60*1000
+        ? `Время прогноза Windy синхронизировано с ${etdDate} ${etdTime} UTC${actual===target?'':' (с округлением модели)'}. Время старта в планировщике проверь отдельно.`
+        : `Windy не принял ${etdDate} ${etdTime} UTC (возможно, за пределами прогноза). Время в планировщике установи вручную.`;
     } catch(err) {
-      status='Не удалось открыть встроенный планировщик: '+String(err);
-      // Direct link is only a fallback when the Windy event itself fails.
+      timeMessage='Не удалось синхронизировать UTC с Windy: '+String(err)+'. Время начала проверь вручную.';
+    }
+    try {
+      // Open native planner with no route, TAS, FL or other flight parameters.
+      bcast.emit('rqstOpen','rplanner');
+      status=timeMessage;
+    } catch(err) {
+      status='Не удалось открыть встроенный планировщик: '+String(err)+'. '+timeMessage;
       try {window.open('https://www.windy.com/distance','_blank','noopener,noreferrer');}
       catch(openErr){status+=' Не удалось открыть резервную ссылку: '+String(openErr);}
     }

@@ -43,18 +43,26 @@ export function makeRouteGpx(route:ParsedRoute,options:{allowPartial?:boolean;ac
     .filter((p,i,all)=>i===0 || p.ident!==all[i-1].ident || Math.abs(p.lat-all[i-1].lat)>1e-6 || Math.abs(p.lon-all[i-1].lon)>1e-6))
     .filter(s=>s.length>=2);
   if(!namedSegments.length)throw Error('Не найдено непрерывного участка с двумя именованными точками');
-  // Use both named route points and independent GPX waypoints. Windy may still
-  // number route nodes, but apps that honor GPX <wpt>/<rtept><name> can show FIX names.
+  // All exported FIX labels remain standard GPX names. Windy's route-planner UI
+  // may still display numbered markers, regardless of the labels in the file.
+  const isDeparture=(p:RoutePoint):boolean=>{
+    if(!departureUtc)return false;
+    const first=route.points[0];
+    return Boolean(first && p.ident===first.ident &&
+      Math.abs(p.lat-first.lat)<1e-6 && Math.abs(p.lon-first.lon)<1e-6 &&
+      namedSegments[0]?.[0]===p);
+  };
+  const departureTime=(p:RoutePoint)=>isDeparture(p)?`<time>${departureUtc}</time>`:'';
   const seen=new Set<string>();
   const waypoints=namedSegments.flat().filter(p=>{
     const key=`${p.ident}/${p.lat.toFixed(7)}/${p.lon.toFixed(7)}`;
     if(seen.has(key))return false;
     seen.add(key);return true;
-  }).map(p=>`<wpt lat="${fmt(p.lat)}" lon="${fmt(p.lon)}"><name>${esc(p.ident)}</name><cmt>${esc(p.ident)}</cmt><sym>Waypoint</sym></wpt>`).join('\n');
-  const routes=namedSegments.map((segment,i)=>`<rte><name>${esc((partial?'PARTIAL - ':'')+`Flight route ${i+1}`)}</name>${segment.map(p=>`<rtept lat="${fmt(p.lat)}" lon="${fmt(p.lon)}"><name>${esc(p.ident)}</name><cmt>${esc(p.ident)}</cmt></rtept>`).join('')}</rte>`).join('\n');
-  // GPX 1.1 metadata/time means *file creation time*, NOT planned departure.
-  // Store ETD correctly as an explicit planned-departure extension plus readable
-  // metadata description; never fabricate timestamps for downstream fixes.
+  }).map(p=>`<wpt lat="${fmt(p.lat)}" lon="${fmt(p.lon)}">${departureTime(p)}<name>${esc(p.ident)}</name><cmt>${esc(p.ident)}</cmt><desc>${esc(p.ident)}</desc><sym>Waypoint</sym></wpt>`).join('\n');
+  const routes=namedSegments.map((segment,i)=>`<rte><name>${esc((partial?'PARTIAL - ':'')+`Flight route ${i+1}`)}</name>${segment.map(p=>`<rtept lat="${fmt(p.lat)}" lon="${fmt(p.lon)}">${departureTime(p)}<name>${esc(p.ident)}</name><cmt>${esc(p.ident)}</cmt><desc>${esc(p.ident)}</desc></rtept>`).join('')}</rte>`).join('\n');
+  // GPX 1.1 metadata/time is file creation time, NOT departure time.
+  // ETD belongs to the start waypoint only; other point passage times are unknown.
+  // Keep an explicit planned-departure extension for importers that understand it.
   const etdLabel=departureUtc?` Planned departure UTC: ${departureUtc}.`:'';
   const etdExtension=departureUtc?`<extensions><fr:plannedDepartureUtc>${departureUtc}</fr:plannedDepartureUtc></extensions>`:'';
   const extraNs=departureUtc?' xmlns:fr="urn:windy-flight-route-analyzer:flight:1"':'';
