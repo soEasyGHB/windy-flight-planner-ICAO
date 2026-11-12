@@ -5,7 +5,7 @@
     <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-route">
       <h3 id="fr-section-route">Ввод маршрута</h3>
       <label for="fr-route-input">Маршрут OFP / ICAO</label>
-      <textarea id="fr-route-input" bind:value={routeText} rows="4" spellcheck="false" placeholder="EHAM DCT EDDF DCT LTFM DCT OMDB"></textarea>
+      <textarea id="fr-route-input" bind:value={routeText} on:input={routeInputChanged} rows="4" spellcheck="false" placeholder="EHAM DCT EDDF DCT LTFM DCT OMDB"></textarea>
       <div class="btnrow">
         <button type="button" class="primary" on:click={runRoute}>Построить маршрут</button>
         <button type="button" on:click={clearRoute}>Очистить</button>
@@ -13,7 +13,7 @@
     </section>
 
     <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-flight">
-      <h3 id="fr-section-flight">Ввод времени вылета UTC</h3>
+      <h3 id="fr-section-flight">Время вылета UTC</h3>
       <div class="fr-param-stack">
         <div>
           <label for="fr-etd-date">Дата вылета (UTC)</label>
@@ -23,14 +23,6 @@
           <label for="fr-etd-time">Время вылета (UTC)</label>
           <input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={flightInputsChanged} />
         </div>
-        <div>
-          <label for="fr-flight-level">Эшелон FL</label>
-          <input id="fr-flight-level" type="number" min="10" max="450" step="10" bind:value={fl} on:input={flightLevelChanged} />
-        </div>
-        <div>
-          <label for="fr-tas">Скорость TAS, kt</label>
-          <input id="fr-tas" type="number" min="100" max="700" step="5" bind:value={tas} on:change={flightInputsChanged}/>
-        </div>
       </div>
     </section>
 
@@ -38,7 +30,7 @@
       <h3 id="fr-section-weather">Выбор слоя погоды</h3>
       <label for="fr-overlay">Только: гроза, осадки, турбулентность, радар</label>
       <select id="fr-overlay" bind:value={overlay} on:change={setWeatherLayer}>
-        <option value="thunder">Гроза</option>
+        <option value="thunder">Грозы</option>
         <option value="rain">Осадки</option>
         <option value="turbulence">Турбулентность</option>
         <option value="radar">Радар</option>
@@ -68,7 +60,7 @@
         {#if altitudeStatus}<p class="small fr-altitude-notice">{altitudeStatus}</p>{/if}
         {#if overlay === 'radar'}<p class="small">Радар — наблюдения, не высотный прогноз. В отдельных версиях Windy доступ из плагина может быть ограничен.</p>{/if}
         {#if offlineStatus}<p class="info">{offlineStatus}</p>{/if}
-        <p class="small">TAS по умолчанию — 450 kt. ETA рассчитывается без поправки на ветер. Карта Windy синхронизируется с ETD и FL.</p>
+        <p class="small">Расчёт фиксирован: FL360, TAS 450 kt. ETA ориентировочный: расстояния между FIX по прямым, без ATS и ветровой поправки. Карта Windy синхронизируется с ETD и FL.</p>
         <p class="small">Перед открытием штатного Route Planner карта синхронизируется с ETD и FL. Его внутренние скорость и времена по точкам не задаются через публичный API; их необходимо проверить в самом Windy.</p>
         </div>
       </details>
@@ -90,6 +82,7 @@
         <summary>Диагностика маршрута</summary>
         <div class="fr-settings-body">
         <h3>Диагностика маршрута</h3>
+        <p class="small">На карте показаны прямые линии между распознанными именованными точками OFP. ATS-трассы целиком пропускаются, включая Y12. Геометрия и фактическая дальность пролёта по ATS не восстанавливаются; ETA ориентировочные. Не использовать для навигации.</p>
               <p class="small">Координаты, разрывы, неоднозначные FIX, нераспознанные трассы и данные экспорта.</p>
           {#if parsed}
             <div class="stats"><b>{parsed.points.length}</b> найдено точек · <b>{Math.round(parsed.distanceNm)} NM</b> (только подтверждённые участки) · <b>{labeledCount}</b> подписей на карте</div>
@@ -292,10 +285,10 @@
   import { map } from '@windy/map';
   import store from '@windy/store';
   import { onMount,onDestroy } from 'svelte';
-  import {loadDemo,loadOpenSources,airwayCount,parseRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
+  import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {generateWaypointSamples,loadWeather,flLevel,PRESSURES,standardAltitudeM} from './weather';
-  import {applyWindyAltitude, DEFAULT_CRUISE_FL} from './flightAltitude';
+  import {applyWindyAltitude} from './flightAltitude';
   import {buildWindyPlannerRequest,makeRouteGpx,routeIssues} from './routePlanner';
   import {installPlannerPointNames,clearPlannerPointNames} from './plannerPointNames';
   import {buildOfflineBrief} from './offlineReport';
@@ -327,13 +320,34 @@
   let markers: Array<L.CircleMarker | L.Marker>=[];
   let labeledCount=0;
   let weather:WeatherRow[]=[];
-  let weatherFL=350;
+  let weatherFL=360;
   let busy=false;
-  // Default to aviation cruise turbulence layer; altitude follows FL input.
-  let overlay='turbulence';
+  // Start every plugin opening with the thunderstorm layer; fixed analysis FL360/TAS450.
+  let overlay='thunder';
   let model='ecmwf';
-  let fl=DEFAULT_CRUISE_FL;
+  let fl=360;
   let tas=450;
+  // Browser-local state: retained between plugin openings/reloads on the same device.
+  const SAVED_FLIGHT_KEY='windy-flight-route-analyzer:flight:v1';
+  function saveFlightInputs():void {
+    try {
+      window.localStorage.setItem(SAVED_FLIGHT_KEY,JSON.stringify({routeText,etdDate,etdTime}));
+    } catch (_err) { /* Safari private mode / disabled storage: never block the plugin */ }
+  }
+  function restoreFlightInputs():void {
+    try {
+      const raw=window.localStorage.getItem(SAVED_FLIGHT_KEY);
+      if(!raw)return;
+      const saved=JSON.parse(raw) as {routeText?:unknown;etdDate?:unknown;etdTime?:unknown};
+      if(typeof saved.routeText==='string'&&saved.routeText.length<=50000)routeText=saved.routeText;
+      if(typeof saved.etdDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(saved.etdDate))etdDate=saved.etdDate;
+      if(typeof saved.etdTime==='string'&&/^\d{2}:\d{2}$/.test(saved.etdTime))etdTime=saved.etdTime;
+    } catch (_err) { /* corrupted/blocked state: use defaults */ }
+  }
+  function routeInputChanged(event:Event):void {
+    routeText=(event.currentTarget as HTMLTextAreaElement).value;
+    saveFlightInputs();
+  }
   const initialETD=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
   let etdDate=initialETD.slice(0,10);
   let etdTime=initialETD.slice(11,16);
@@ -360,9 +374,10 @@
     }
     lines=[];markers=[];
   };
-  const clearRoute=()=>{clearPlannerPointNames();clearMap();routeText='';parsed=null;labeledCount=0;weather=[];timeWaypoints=[];profileOpen=false;status='Маршрут очищен';};
+  const clearRoute=()=>{clearPlannerPointNames();clearMap();routeText='';parsed=null;labeledCount=0;weather=[];timeWaypoints=[];profileOpen=false;status='Маршрут очищен';saveFlightInputs();};
   function runRoute():void {
-    clearPlannerPointNames();clearMap();weather=[];profileOpen=false;parsed=parseRoute(routeText);
+    saveFlightInputs();
+    clearPlannerPointNames();clearMap();weather=[];profileOpen=false;parsed=parseNamedFixRoute(routeText);
     const safeSegments=parsed.segments.filter(s=>s.length>=2);
     const namedFixes=mapLabelPoints(parsed);
     labeledCount=0;
@@ -420,7 +435,7 @@
       try {map.fitBounds(visibleCoords,{padding:[35,35],maxZoom:8});}
       catch(_e) {map.setView(visibleCoords[0],5);}
     }
-    status=`Маршрут: ${Math.round(parsed.distanceNm)} NM; подписей точек: ${labeledCount}; разрывов: ${parsed.gaps.length}. ATS-трассы показаны только линией.`;
+    status=`Упрощённая схема: ${Math.round(parsed.distanceNm)} NM по прямым между FIX; подписей: ${labeledCount}; разрывов: ${parsed.gaps.length}. ATS пропущены.`;
     refreshWaypointSchedule();
     syncWindyTimestamp(departureDate(),false);
   }
@@ -446,7 +461,9 @@
     for(const timer of altitudeTimers) clearTimeout(timer);
     altitudeTimers=[];
   }
-  function setWeatherLayer():void {
+  function setWeatherLayer(event?:Event):void {
+    const selection=event?.currentTarget as HTMLSelectElement | undefined;
+    if(selection?.id==='fr-overlay')overlay=selection.value;
     cancelAltitudeRetries();
     const requestId=++altitudeRequestId;
     if(overlay !== 'radar') store.set('product',model as any);
@@ -466,13 +483,6 @@
     status=actual===overlay
       ? `Windy: ${overlay}${overlay==='radar'?' (наблюдения)':`, ${model}`}; FL${fl} — ${altitudeStatus}`
       : `Windy не переключил слой на ${overlay}; проверь доступность слоя в этой версии Windy.`;
-  }
-  function flightLevelChanged(event:Event):void {
-    const next=Number((event.currentTarget as HTMLInputElement).value);
-    if(!Number.isFinite(next)||next<10||next>450) return;
-    fl=next;
-    flightInputsChanged();
-    setWeatherLayer();
   }
   function refreshWaypointSchedule():void {
     const departure=departureDate();
@@ -666,7 +676,11 @@
       offlineStatus='Открыта версия для печати. Нажми «Печать / сохранить PDF», затем выбери сохранение PDF в Safari/iPadOS.';
     } catch(err){offlineStatus='PDF: '+String(err);}
   }
-  function flightInputsChanged():void {
+  function flightInputsChanged(event?:Event):void {
+    const input=event?.currentTarget as HTMLInputElement | undefined;
+    if(input?.id==='fr-etd-date')etdDate=input.value;
+    if(input?.id==='fr-etd-time')etdTime=input.value;
+    saveFlightInputs();
     weather=[];profileOpen=false;activeProfileIndex=0;
     if(!(Number(tas)>=100 && Number(tas)<=700)) {status='TAS должна быть в диапазоне 100–700 kt';return;}
     refreshWaypointSchedule();
@@ -712,11 +726,12 @@
   export const onopen=()=>{
     if(parsed?.points.length) try { runRoute(); }
     catch(err) { console.error('Route rendering failed',err);status='Ошибка карты: '+String(err); }
-    // Windy may restore a previous layer/range when the panel is reopened.
-    // Reapply the user's selected FL (initially FL350, turbulence 300h–200h).
+    // Each opening starts on the thunderstorm layer (regardless of Windy's prior state).
+    overlay='thunder';
     setWeatherLayer();
   };
   onMount(()=>{
+    restoreFlightInputs();
     loadDemo();pointTotal=totalPoints();
     try { runRoute();setWeatherLayer(); }
     catch(err) { console.error('Initial map rendering failed',err);status='Не удалось нарисовать маршрут: '+String(err); }
@@ -724,20 +739,26 @@
     // Failures are visible and never silently replaced with an alleged full AIRAC database.
     (async()=>{await updateHosted();await reloadSources();})();
   });
-  onDestroy(()=>{cancelAltitudeRetries();clearMap();});
+  onDestroy(()=>{saveFlightInputs();cancelAltitudeRetries();clearMap();});
 </script>
 <style lang="less">
   .flightplanner .fr-main-stack {display:flex;flex-direction:column;gap:12px;margin:10px 0 14px;}
-  .flightplanner .fr-main-card {border:1px solid #9c9c9c;border-radius:18px;background:#bcbcbc;padding:16px 16px 14px;min-width:0;}
-  .flightplanner .fr-main-card h3 {font-size:15px;margin:0 0 10px;color:#111;text-align:center;}
-  .flightplanner .fr-main-card--light label {color:#232323;}
-  .flightplanner .fr-main-card--light textarea, .flightplanner .fr-main-card--light input, .flightplanner .fr-main-card--light select {background:#d7d7d7;color:#111;border:1px solid #9f9f9f;}
+  .flightplanner .fr-main-card {border:1px solid #7e868f;border-radius:18px;background:#555e69;padding:16px 16px 14px;min-width:0;}
+  .flightplanner .fr-main-card h3 {font-size:15px;margin:0 0 10px;color:#f8fafc;text-align:center;}
+  .flightplanner .fr-main-card--light label {color:#f0f3f6;}
+  .flightplanner .fr-main-card--light textarea, .flightplanner .fr-main-card--light input, .flightplanner .fr-main-card--light select {background:#727d89;color:#fff;border:1px solid #a0a9b2;}
   .flightplanner .fr-main-card--light button {min-height:44px;}
-  .flightplanner .fr-main-card--light button:not(.primary) {background:#d7d7d7;color:#111;border-color:#9f9f9f;}
+  .flightplanner .fr-main-card--light button:not(.primary) {background:#747c87;color:#fff;border-color:#a0a9b2;}
   .flightplanner .fr-main-card--light button.primary {background:#2f74b5;color:#fff;border-color:#2f74b5;}
   .flightplanner .fr-main-card .btnrow {margin-bottom:3px;}
   .flightplanner .fr-param-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
   .flightplanner .fr-param-stack {display:grid;grid-template-columns:1fr;gap:10px;}
+  .flightplanner .fr-param-stack>div {min-width:0;max-width:100%;}
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {
+    box-sizing:border-box;display:block;width:190px;max-width:100%;min-width:0;
+    height:39px;padding:7px 8px;font-size:13px;color-scheme:dark;
+  }
+
   .flightplanner .fr-param-grid>div {min-width:0;}
   .flightplanner .fr-param-grid input {color-scheme:dark;min-width:0;}
   .flightplanner .fr-action-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:6px 0 12px;}

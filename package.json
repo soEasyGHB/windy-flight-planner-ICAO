@@ -1,6 +1,6 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "type": "module",
   "description": "Windy route planner using navdata uploaded and converted on GitHub; no file upload in Windy",
   "main": "dist/plugin.min.js",
@@ -8,7 +8,7 @@
     "start": "rollup -w -c",
     "build": "SERVE=false rollup -c",
     "typecheck:core": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --strict src/navdb.ts src/weather.ts src/xplane.ts src/routePlanner.ts src/plannerPointNames.ts src/offlineReport.ts src/flightAltitude.ts",
-    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/weather.ts src/routePlanner.ts src/plannerPointNames.ts src/offlineReport.ts src/flightAltitude.ts && node tools/fix-generated-imports.mjs && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_weather.mjs && node tests/test_route_planner.mjs && node tests/test_github_snapshot.mjs && node tests/test_in_app_planner.mjs && node tests/test_planner_point_names.mjs && node tests/test_offline_report.mjs && node tests/test_flight_altitude.mjs && node tests/test_flight_ui.mjs && node tests/test_ui_layout.mjs && node tests/test_clean_ui.mjs && node tests/test_turbulence_default.mjs && node tests/test_release_v085.mjs && python3 tests/test_navdata_converter.py",
+    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/weather.ts src/routePlanner.ts src/plannerPointNames.ts src/offlineReport.ts src/flightAltitude.ts && node tools/fix-generated-imports.mjs && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_weather.mjs && node tests/test_route_planner.mjs && node tests/test_github_snapshot.mjs && node tests/test_in_app_planner.mjs && node tests/test_planner_point_names.mjs && node tests/test_offline_report.mjs && node tests/test_flight_altitude.mjs && node tests/test_flight_ui.mjs && node tests/test_ui_layout.mjs && node tests/test_clean_ui.mjs && node tests/test_turbulence_default.mjs && node tests/test_release_v085.mjs && node tests/test_visual_route_v086.mjs && python3 tests/test_navdata_converter.py",
     "test:layout": "node tests/test_ui_layout.mjs",
     "test:clean-ui": "node tests/test_clean_ui.mjs",
     "check:imports": "node tools/check-plugin-deps.mjs",

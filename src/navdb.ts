@@ -270,6 +270,26 @@ export function githubUploadUrl(repoUrl:string):string {
   return repoUrl.replace(/\/$/,'')+'/upload/main/navdata-input';
 }
 
+/** Visualization-only reconstruction: remove ATS airway designators from an OFP,
+ * leaving only explicitly named navigation fixes. The map then shows great-circle
+ * links between confirmed consecutive fixes, NOT the actual airway geometry.
+ * Unknown fixes still create gaps through parseRoute; never invent coordinates.
+ * Works even when an airway (e.g. Y12) is absent from uploaded AIRAC CSV.
+ */
+export function parseNamedFixRoute(text:string):ParsedRoute {
+  const raw=text.replace(/[\n\r]+/g,' ').split(/\s+/).filter(Boolean);
+  const kept:string[]=[],removed:string[]=[];
+  for(let i=0;i<raw.length;i++) {
+    const token=normalizeRouteToken(raw[i],i===0||i===raw.length-1);
+    // These patterns are airway designators, not ICAO coordinates or speed/FL.
+    const resemblesAirway=/^(?:[A-Z]{1,2}\d{1,5}[A-Z]?)$/.test(token);
+    if(AIRWAYS.has(token) || resemblesAirway) {removed.push(token);continue;}
+    kept.push(token);
+  }
+  const parsed=parseRoute(kept.join(' '));
+  return {...parsed,skipped:[...parsed.skipped,...removed.map(item=>'ATS omitted: '+item)]};
+}
+
 /** Safe route reconstruction: unknown ATS or missing FIX are never linked with a false line. */
 export function parseRoute(text:string):ParsedRoute {
   const rawTokens=text.replace(/[\n\r]+/g,' ').split(/\s+/).filter(Boolean);

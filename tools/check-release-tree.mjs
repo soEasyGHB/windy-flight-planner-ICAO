@@ -9,8 +9,8 @@ const required = [
   '.github/workflows/publish-plugin.yml','.github/workflows/build-navdata.yml',
   '.github/workflows/sync-gdrive-navdata.yml',
   'public/index.html','public/navdata/.gitkeep','navdata-input/README.md',
-  'tests/test_release_v085.mjs','tests/test_navdata_converter.py',
-  'INSTALL-v0.8.5-iPad.md','AUDIT-v0.8.5.md',
+  'tests/test_release_v085.mjs','tests/test_visual_route_v086.mjs','tests/test_navdata_converter.py',
+  'INSTALL-v0.8.6-iPad.md','AUDIT-v0.8.6.md',
 ];
 const missing=required.filter(path=>!existsSync(path));
 if(missing.length)throw Error('Missing complete release files: '+missing.join(', '));

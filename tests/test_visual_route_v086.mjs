@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {loadDemo,importCsv,importAirwaysCsv,parseNamedFixRoute,mapLabelPoints} from './generated/navdb.js';
+import {makeRouteGpx,buildWindyPlannerRequest} from './generated/routePlanner.js';
+loadDemo();
+importCsv('ident,latitude_deg,longitude_deg,type\nTOGMO,55.0,38.0,FIX\nABAGI,56.0,39.0,FIX\nNIMTA,57.0,40.0,FIX\nMILED,58.0,41.0,FIX\n');
+// Even a failed Y12 (not contained in AIRWAYS) must be ignored in visualization.
+let route=parseNamedFixRoute('UUEE24C TOGMO M56 ABAGI Y12 NIMTA DCT OMDB30R');
+assert.deepEqual(mapLabelPoints(route).map(p=>p.ident),['UUEE','TOGMO','ABAGI','NIMTA','OMDB']);
+assert.equal(route.gaps.length,0);
+assert.equal(route.airwayNames.length,0);
+assert.equal(route.expandedAirways.length,0);
+assert.equal(route.points.length,5);
+assert(route.skipped.some(s=>s.includes('ATS omitted: Y12')));
+assert.equal(buildWindyPlannerRequest(route).params.coords.length,5);
+let xml=makeRouteGpx(route);
+assert.equal((xml.match(/<rtept /g)||[]).length,5);
+for(const name of ['M56','Y12'])assert(!xml.includes('<name>'+name+'</name>'));
+assert(!xml.includes('<trkpt') && !xml.includes('<wpt'));
+// Even if airways are present in AIRAC, the simplified map must ignore their geometry.
+importAirwaysCsv('airway,segment,seq,latitude_deg,longitude_deg\nY12,s,0,55,38\nY12,s,1,56,39\nY12,s,2,57,40\n');
+route=parseNamedFixRoute('UUEE24C TOGMO M56 ABAGI Y12 NIMTA DCT OMDB30R');
+assert.equal(route.points.length,5);
+assert.deepEqual(route.expandedAirways,[]);
+// Unknown FIX still produces a real gap; skipping airways must not silently invent a FIX.
+route=parseNamedFixRoute('UUEE24C TOGMO Y12 UNKNOWNFIX ABAGI DCT OMDB30R');
+assert(route.unresolved.includes('UNKNOWNFIX'));
+assert(route.gaps.length>0);
+xml=makeRouteGpx(route,{allowPartial:true});
+assert(xml.includes('PARTIAL'));
+assert(!xml.includes('<trkpt'));
+const src=readFileSync('src/plugin.svelte','utf8');
+const head=src.slice(0,src.indexOf('<script lang="ts">'));
+const main=head.slice(head.indexOf('fr-main-stack'),head.indexOf('<details class="fr-settings">'));
+assert(main.includes('id="fr-etd-date"') && main.includes('id="fr-etd-time"'));
+assert(!main.includes('fr-flight-level') && !main.includes('fr-tas'));
+assert(src.includes('parseNamedFixRoute(routeText)'));
+assert(src.includes("let overlay='thunder'"));
+assert(src.includes('let fl=360') && src.includes('let tas=450'));
+assert(src.includes('localStorage.setItem(SAVED_FLIGHT_KEY') && src.includes('localStorage.getItem(SAVED_FLIGHT_KEY'));
+assert(src.includes('onDestroy(()=>{saveFlightInputs()'));
+assert(src.includes('width:190px;max-width:100%'));
+assert(src.includes('background:#555e69'));
+console.log('PASS: no ATS in map/GPX, unknown FIX retains gaps, runway token, persistence, FL360/TAS450, thunder, dark layout');
