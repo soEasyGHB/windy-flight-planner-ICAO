@@ -214,6 +214,15 @@ function coordFix(token:string):NavPoint|null {
   if(m) {const lat=Number(m[2])+Number(m[3])/60,lon=Number(m[5])+Number(m[6])/60;return {ident:token,lat:m[1]==='S'?-lat:lat,lon:m[4]==='W'?-lon:lon,type:'COORD',source:'route'};}
   return null;
 }
+function normalizeRouteToken(token:string, airportPosition=false):string {
+  let item=token.toUpperCase().trim();
+  if(item.includes('/')) item=item.split('/')[0];
+  item=item.replace(/^[,;:.]+|[,;:.]+$/g,'').replace(/[()]/g,'');
+  const runway=item.match(/^([A-Z]{4})\d{1,2}[LRC]?$/);
+  if(runway && airportPosition) return runway[1];
+  return item;
+}
+
 /** Points to label are precisely the fixes named in the user's OFP. */
 export function mapLabelPoints(route:ParsedRoute):RoutePoint[] {
   const seen = new Set<string>();
@@ -263,7 +272,8 @@ export function githubUploadUrl(repoUrl:string):string {
 
 /** Safe route reconstruction: unknown ATS or missing FIX are never linked with a false line. */
 export function parseRoute(text:string):ParsedRoute {
-  const raw=text.toUpperCase().replace(/[\n\r,;]+/g,' ').split(/\s+/).filter(Boolean);
+  const rawTokens=text.replace(/[\n\r]+/g,' ').split(/\s+/).filter(Boolean);
+  const raw=rawTokens.map((token,i)=>normalizeRouteToken(token,i===0||i===rawTokens.length-1)).filter(Boolean);
   const points:RoutePoint[]=[],segments:RoutePoint[][]=[],gaps:RouteGap[]=[];
   const unresolved:string[]=[],skipped:string[]=[],airwayNames:string[]=[],expandedAirways:string[]=[],ambiguous:string[]=[];
   let active:RoutePoint[]=[],pendingAirway:string|null=null,pendingGap:string|null=null;

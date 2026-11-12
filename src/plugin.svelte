@@ -2,8 +2,8 @@
 <section class="plugin__content flightplanner">
   <div class="plugin__title plugin__title--chevron-back" on:click={() => bcast.emit('rqstOpen', 'menu')}>{title}</div>
   <div class="fr-main-stack">
-    <section class="fr-main-card" aria-labelledby="fr-section-route">
-      <h3 id="fr-section-route">1. Ввод маршрута</h3>
+    <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-route">
+      <h3 id="fr-section-route">Ввод маршрута</h3>
       <label for="fr-route-input">Маршрут OFP / ICAO</label>
       <textarea id="fr-route-input" bind:value={routeText} rows="4" spellcheck="false" placeholder="EHAM DCT EDDF DCT LTFM DCT OMDB"></textarea>
       <div class="btnrow">
@@ -12,44 +12,45 @@
       </div>
     </section>
 
-    <section class="fr-main-card" aria-labelledby="fr-section-flight">
-      <h3 id="fr-section-flight">2. Данные полёта</h3>
-      <div class="fr-param-grid">
-        <div><label for="fr-etd-date">Дата вылета (UTC)</label><input id="fr-etd-date" type="date" bind:value={etdDate} on:change={flightInputsChanged} /></div>
-        <div><label for="fr-etd-time">Время вылета (UTC)</label><input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={flightInputsChanged} /></div>
-        <div><label for="fr-flight-level">Эшелон FL</label><input id="fr-flight-level" type="number" min="10" max="450" step="10" bind:value={fl} on:input={flightLevelChanged} /></div>
-        <div><label for="fr-tas">TAS, kt</label><input id="fr-tas" type="number" min="100" max="700" step="5" bind:value={tas} on:change={flightInputsChanged}/></div>
+    <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-flight">
+      <h3 id="fr-section-flight">Ввод времени вылета UTC</h3>
+      <div class="fr-param-stack">
+        <div>
+          <label for="fr-etd-date">Дата вылета (UTC)</label>
+          <input id="fr-etd-date" type="date" bind:value={etdDate} on:change={flightInputsChanged} />
+        </div>
+        <div>
+          <label for="fr-etd-time">Время вылета (UTC)</label>
+          <input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={flightInputsChanged} />
+        </div>
+        <div>
+          <label for="fr-flight-level">Эшелон FL</label>
+          <input id="fr-flight-level" type="number" min="10" max="450" step="10" bind:value={fl} on:input={flightLevelChanged} />
+        </div>
+        <div>
+          <label for="fr-tas">Скорость TAS, kt</label>
+          <input id="fr-tas" type="number" min="100" max="700" step="5" bind:value={tas} on:change={flightInputsChanged}/>
+        </div>
       </div>
     </section>
 
-    <section class="fr-main-card" aria-labelledby="fr-section-weather">
-      <h3 id="fr-section-weather">3. Слой погоды</h3>
-      <label for="fr-overlay">Погодный слой Windy</label>
+    <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-weather">
+      <h3 id="fr-section-weather">Выбор слоя погоды</h3>
+      <label for="fr-overlay">Только: гроза, осадки, турбулентность, радар</label>
       <select id="fr-overlay" bind:value={overlay} on:change={setWeatherLayer}>
-        <option value="thunder">Грозы</option>
+        <option value="thunder">Гроза</option>
         <option value="rain">Осадки</option>
         <option value="turbulence">Турбулентность</option>
-        <option value="radar">Радар осадков</option>
-        <option value="wind">Ветер</option>
-        <option value="temp">Температура</option>
-        <option value="icing">Обледенение</option>
-        <option value="clouds">Облачность</option>
-        <option value="rh">Влажность</option>
-        <option value="cape">CAPE</option>
-        <option value="cloudtop">Верхняя граница облаков</option>
+        <option value="radar">Радар</option>
       </select>
-      <div class="btnrow"><button type="button" class="primary" on:click={setWeatherLayer}>Показать на карте</button></div>
     </section>
 
-    <section class="fr-main-card" aria-labelledby="fr-section-export">
-      <h3 id="fr-section-export">4. Планировщик и экспорт</h3>
-      <div class="fr-action-grid">
-        <button type="button" class="primary" disabled={busy} on:click={openNativeRoutePlanner}>Открыть в Windy Route Planner</button>
-        <button type="button" disabled={busy} on:click={downloadPlannerGpx}>Скачать GPX</button>
-        <button type="button" class="primary" on:click={saveOfflineHtml}>Сохранить HTML офлайн</button>
-        <button type="button" on:click={openOfflinePrint}>Открыть для PDF</button>
+    <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-export">
+      <h3 id="fr-section-export">Планировщик полёта</h3>
+      <div class="fr-action-grid fr-action-grid--single">
+        <button type="button" disabled={busy} on:click={downloadPlannerGpx}>Скачать GPX файл маршрута</button>
+        <button type="button" class="primary" disabled={busy} on:click={openNativeRoutePlanner}>Открыть планировщик полёта</button>
       </div>
-      <div class="btnrow"><button type="button" disabled={busy} on:click={openWeatherProfile}>Получить ветер, T и ISA по точкам</button></div>
     </section>
   </div>
 
@@ -197,6 +198,17 @@
         </div>
       </details>
       <details class="fr-settings-group">
+        <summary>Дополнительные действия</summary>
+        <div class="fr-settings-body">
+          <div class="fr-action-grid">
+            <button type="button" class="primary" on:click={saveOfflineHtml}>Сохранить HTML офлайн</button>
+            <button type="button" on:click={openOfflinePrint}>Открыть для PDF</button>
+          </div>
+          <div class="btnrow"><button type="button" disabled={busy} on:click={openWeatherProfile}>Получить ветер, T и ISA по точкам</button></div>
+        </div>
+      </details>
+
+      <details class="fr-settings-group">
         <summary>Навигационная база данных</summary>
         <div class="fr-settings-body">
         <h3>Навигационная база данных — Google Drive → GitHub</h3>
@@ -283,7 +295,7 @@
   import {loadDemo,loadOpenSources,airwayCount,parseRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {generateWaypointSamples,loadWeather,flLevel,PRESSURES,standardAltitudeM} from './weather';
-  import {applyWindyAltitude} from './flightAltitude';
+  import {applyWindyAltitude, DEFAULT_CRUISE_FL} from './flightAltitude';
   import {buildWindyPlannerRequest,makeRouteGpx,routeIssues} from './routePlanner';
   import {installPlannerPointNames,clearPlannerPointNames} from './plannerPointNames';
   import {buildOfflineBrief} from './offlineReport';
@@ -317,9 +329,10 @@
   let weather:WeatherRow[]=[];
   let weatherFL=350;
   let busy=false;
-  let overlay='wind';
+  // Default to aviation cruise turbulence layer; altitude follows FL input.
+  let overlay='turbulence';
   let model='ecmwf';
-  let fl=350;
+  let fl=DEFAULT_CRUISE_FL;
   let tas=450;
   const initialETD=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
   let etdDate=initialETD.slice(0,10);
@@ -333,7 +346,7 @@
   let offlineStatus='';
   let altitudeStatus='';
   let altitudeRequestId=0;
-  let altitudeTimer:ReturnType<typeof setTimeout>|null=null;
+  let altitudeTimers:Array<ReturnType<typeof setTimeout>>=[];
   let timeWaypoints:Sample[]=[];
 
   const cruiseFlightLevels=[300,310,320,330,340,350,360,370,380,390,400];
@@ -411,7 +424,7 @@
     refreshWaypointSchedule();
     syncWindyTimestamp(departureDate(),false);
   }
-  /** Set altitude immediately, then retry once after Windy rebuilds overlay availability. */
+  /** Apply height only while this overlay request is current. */
   function updateWindyAltitude(requestId=altitudeRequestId):void {
     if(requestId !== altitudeRequestId) return;
     try {
@@ -429,14 +442,26 @@
       }
     } catch(err) {altitudeStatus='Не удалось выбрать высоту в Windy: '+String(err);}
   }
+  function cancelAltitudeRetries():void {
+    for(const timer of altitudeTimers) clearTimeout(timer);
+    altitudeTimers=[];
+  }
   function setWeatherLayer():void {
-    if(altitudeTimer!==null) {clearTimeout(altitudeTimer);altitudeTimer=null;}
+    cancelAltitudeRetries();
     const requestId=++altitudeRequestId;
     if(overlay !== 'radar') store.set('product',model as any);
     store.set('overlay',overlay as any);
+    // Overlay/model changes can reset the altitude later than the previous
+    // single 220 ms retry. Reapply for a bounded 3-second initialization
+    // window; never keep an indefinite timer fighting user controls.
     updateWindyAltitude(requestId);
-    // On Windy, availLevels / levelsRange can update asynchronously after product and overlay.
-    altitudeTimer=setTimeout(()=>{updateWindyAltitude(requestId);altitudeTimer=null;},220);
+    for (const delay of [180,600,1300,3000]) {
+      const timer=setTimeout(()=>{
+        if(requestId===altitudeRequestId) updateWindyAltitude(requestId);
+        altitudeTimers=altitudeTimers.filter(t=>t!==timer);
+      },delay);
+      altitudeTimers.push(timer);
+    }
     const actual=store.get('overlay');
     status=actual===overlay
       ? `Windy: ${overlay}${overlay==='radar'?' (наблюдения)':`, ${model}`}; FL${fl} — ${altitudeStatus}`
@@ -687,6 +712,9 @@
   export const onopen=()=>{
     if(parsed?.points.length) try { runRoute(); }
     catch(err) { console.error('Route rendering failed',err);status='Ошибка карты: '+String(err); }
+    // Windy may restore a previous layer/range when the panel is reopened.
+    // Reapply the user's selected FL (initially FL350, turbulence 300h–200h).
+    setWeatherLayer();
   };
   onMount(()=>{
     loadDemo();pointTotal=totalPoints();
@@ -696,17 +724,24 @@
     // Failures are visible and never silently replaced with an alleged full AIRAC database.
     (async()=>{await updateHosted();await reloadSources();})();
   });
-  onDestroy(()=>{if(altitudeTimer!==null) clearTimeout(altitudeTimer);clearMap();});
+  onDestroy(()=>{cancelAltitudeRetries();clearMap();});
 </script>
 <style lang="less">
   .flightplanner .fr-main-stack {display:flex;flex-direction:column;gap:12px;margin:10px 0 14px;}
-  .flightplanner .fr-main-card {border:1px solid #576371;border-radius:11px;background:#26323d;padding:13px 13px 11px;min-width:0;}
-  .flightplanner .fr-main-card h3 {font-size:15px;margin:0 0 10px;color:#f7f8fb;}
+  .flightplanner .fr-main-card {border:1px solid #9c9c9c;border-radius:18px;background:#bcbcbc;padding:16px 16px 14px;min-width:0;}
+  .flightplanner .fr-main-card h3 {font-size:15px;margin:0 0 10px;color:#111;text-align:center;}
+  .flightplanner .fr-main-card--light label {color:#232323;}
+  .flightplanner .fr-main-card--light textarea, .flightplanner .fr-main-card--light input, .flightplanner .fr-main-card--light select {background:#d7d7d7;color:#111;border:1px solid #9f9f9f;}
+  .flightplanner .fr-main-card--light button {min-height:44px;}
+  .flightplanner .fr-main-card--light button:not(.primary) {background:#d7d7d7;color:#111;border-color:#9f9f9f;}
+  .flightplanner .fr-main-card--light button.primary {background:#2f74b5;color:#fff;border-color:#2f74b5;}
   .flightplanner .fr-main-card .btnrow {margin-bottom:3px;}
   .flightplanner .fr-param-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
+  .flightplanner .fr-param-stack {display:grid;grid-template-columns:1fr;gap:10px;}
   .flightplanner .fr-param-grid>div {min-width:0;}
   .flightplanner .fr-param-grid input {color-scheme:dark;min-width:0;}
   .flightplanner .fr-action-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:6px 0 12px;}
+  .flightplanner .fr-action-grid--single {grid-template-columns:1fr;}
   .flightplanner .fr-action-grid button {min-width:0;min-height:42px;white-space:normal;text-align:center;}
   .flightplanner .fr-inline-details {border-top:1px solid #4b5a69;margin-top:10px;padding-top:10px;}
   .flightplanner .fr-inline-details>summary {font-weight:600;color:#dbeaf7;padding:3px 0;}

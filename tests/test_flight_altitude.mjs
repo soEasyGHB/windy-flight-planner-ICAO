@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import {planWindyAltitude,nearestPressureLevel,desiredTurbulenceBand,applyWindyAltitude} from './generated/flightAltitude.js';
+import {DEFAULT_CRUISE_FL, DEFAULT_TURBULENCE_RANGE,planWindyAltitude,nearestPressureLevel,desiredTurbulenceBand,applyWindyAltitude} from './generated/flightAltitude.js';
 
+assert.equal(DEFAULT_CRUISE_FL,350);
+assert.equal(DEFAULT_TURBULENCE_RANGE,'300h-200h');
 assert.equal(desiredTurbulenceBand(350),'300h-200h');
+assert.equal(desiredTurbulenceBand(390),'300h-200h');
 assert.equal(desiredTurbulenceBand(280),'700h-300h');
 assert.equal(nearestPressureLevel(350), '250h');
 const turb = planWindyAltitude('turbulence',350);
@@ -23,5 +26,18 @@ const count=writes.length;
 result=applyWindyAltitude(store,'thunder',350);
 assert.equal(writes.length,count,'2D overlay should not force a FL');
 assert.equal(result.accepted,true);
-assert.equal(planWindyAltitude('turbulence',350,['200h','250h'],['700h-300h']).levelsRange,null);
+// An out-of-date getAllowed() is advisory, not grounds to skip writing the range.
+assert.equal(planWindyAltitude('turbulence',350,['200h','250h'],['700h-300h']).levelsRange,'300h-200h');
+const rejectedState={level:'700h',levelsRange:'700h-300h',availLevels:['250h']};
+const rejectedStore={get:key=>rejectedState[key],getAllowed:()=>['700h-300h'],set:()=>true};
+const rejected=applyWindyAltitude(rejectedStore,'turbulence',350);
+assert.equal(rejected.accepted,false,'store.set returning true is not evidence of an applied range');
+assert.equal(rejected.actual,'700h-300h');
+const delayedState={level:'700h',levelsRange:'700h-300h',availLevels:['250h']};
+const delayedStore={get:key=>delayedState[key],getAllowed:()=>['700h-300h'],set:(key,value)=>{ delayedState[key]=value; }};
+const delayed=applyWindyAltitude(delayedStore,'turbulence',350);
+assert.equal(delayed.accepted,true,'eventually available range can still be applied');
+assert.equal(delayed.actual,'300h-200h');
+assert.equal(delayed.actualLevel,'250h');
+
 console.log('PASS: pressure, turbulence range, 2D overlay safety, store writes');

@@ -3,6 +3,9 @@
  * Windy uses pressure levels (e.g. 250h) and, for range overlays, levelsRange.
  * Atmospheric conversion below is approximate ISA, not QNH-corrected altitude.
  */
+export const DEFAULT_CRUISE_FL = 350;
+// Approx. FL300–FL386 in ISA; closest Windy range to FL300–FL390.
+export const DEFAULT_TURBULENCE_RANGE = '300h-200h';
 export type WindyAltitudeMode = 'pressure' | 'range' | 'two-dimensional';
 export type WindyAltitudePlan = {
   mode: WindyAltitudeMode;
@@ -15,7 +18,7 @@ export type WindyAltitudePlan = {
 export interface WindyStoreLike {
   get(key: string): unknown;
   getAllowed?(key: string): unknown;
-  set(key: string, value: unknown): boolean;
+  set(key: string, value: unknown): unknown;
 }
 
 export const PRESSURE_LEVELS = ['975h','950h','925h','900h','850h','800h','700h','600h','500h','400h','300h','250h','200h','150h','10h'] as const;
@@ -36,11 +39,11 @@ export function nearestPressureLevel(fl: number, available: readonly string[] = 
   return candidates.reduce((best, s) => Math.abs(parseInt(s,10)-pressure) < Math.abs(parseInt(best,10)-pressure) ? s : best);
 }
 
-/** FL350 => FL300–400 nominal band. Endpoints are approximate isobaric equivalents. */
+/** FL350 => 300h–200h, approximately FL300–FL386 in ISA. */
 export function desiredTurbulenceBand(fl: number): string {
   if(fl < 100) return 'surface-700h';
   if(fl < 300) return '700h-300h';
-  if(fl <= 400) return '300h-200h';
+  if(fl <= 400) return DEFAULT_TURBULENCE_RANGE;
   return '200h-150h';
 }
 
@@ -51,12 +54,13 @@ export function planWindyAltitude(overlay: string, fl: number, availLevels: read
   if(!Number.isFinite(fl) || fl < 0 || fl > 600) throw Error('Эшелон вне поддерживаемого диапазона FL000–FL600');
   if(overlay === 'turbulence') {
     const desired=desiredTurbulenceBand(fl);
-    // The range is selected exactly when Windy advertises it; otherwise keep
-    // it as an attempt so the store can report whether it accepted the value.
-    const range=availRanges.length && !availRanges.includes(desired) ? null : desired;
-    return {mode:'range',requestedFL:fl,pressureLevel:nearestPressureLevel(fl,availLevels),levelsRange:range,
-      note:range ? `Турбулентность: диапазон ${desired} (ближайший к FL${Math.round(fl)}).`:
-      `Для FL${Math.round(fl)} диапазон ${desired} недоступен в выбранной модели/версии Windy.`};
+    // Always attempt the range even if getAllowed() is stale immediately after
+    // changing overlays. Windy can rebuild availLevels asynchronously.
+    const available = !availRanges.length || availRanges.includes(desired);
+    return {mode:'range',requestedFL:fl,pressureLevel:nearestPressureLevel(fl,availLevels),levelsRange:desired,
+      note:available
+        ? `Турбулентность: диапазон ${desired} (для FL${Math.round(fl)}).`
+        : `Запрошен диапазон ${desired}; Windy пока не сообщает его как доступный.`};
   }
   if(TWO_DIMENSIONAL.has(overlay)) {
     const isRadar=overlay==='radar';
@@ -74,25 +78,54 @@ export function planWindyAltitude(overlay: string, fl: number, availLevels: read
     note:`Для слоя «${overlay}» нельзя подтвердить высотную фильтрацию по FL${Math.round(fl)}.`};
 }
 
-export type AltitudeApplyResult = WindyAltitudePlan & {accepted:boolean; actual:string|null};
+export type AltitudeApplyResult = WindyAltitudePlan & {
+  accepted: boolean;
+  actual: string | null;
+  actualLevel?: string | null;
+  rangeAccepted?: boolean;
+  pressureAccepted?: boolean;
+};
+
+function readValue(store: WindyStoreLike, key: string): string | null {
+  try {
+    const raw=store.get(key);
+    return raw===null || raw===undefined ? null : String(raw);
+  } catch(_err) { return null; }
+}
+
+/** A store.set() return value is not a reliable confirmation of map state. */
+function writeAndVerify(store: WindyStoreLike, key: string, value: string): {actual:string|null; accepted:boolean} {
+  try { store.set(key, value); }
+  catch(_err) { /* The caller will report the actual value below. */ }
+  const actual=readValue(store,key);
+  return {actual,accepted:actual===value};
+}
+
 export function applyWindyAltitude(store: WindyStoreLike, overlay: string, fl: number): AltitudeApplyResult {
   const levels=allowedStrings(store.get('availLevels'));
   const effectiveLevels=levels.length ? levels : [...PRESSURE_LEVELS];
-  const permittedRanges=allowedStrings(store.getAllowed?.('levelsRange'));
+  let permittedRanges:string[]=[];
+  try { permittedRanges=allowedStrings(store.getAllowed?.('levelsRange')); }
+  catch(_err) { /* getAllowed can lag behind the overlay transition. */ }
   const plan=planWindyAltitude(overlay,fl,effectiveLevels,permittedRanges);
   if(plan.mode==='two-dimensional') return {...plan,accepted:true,actual:null};
   if(plan.mode==='range') {
-    if(!plan.levelsRange) return {...plan,accepted:false,actual:String(store.get('levelsRange')??'')};
-    const changed=store.set('levelsRange',plan.levelsRange);
-    const actual=String(store.get('levelsRange')??'');
-    const accepted=changed || actual===plan.levelsRange;
-    return {...plan,accepted,actual,note:accepted?plan.note:
-      `Windy не принял диапазон ${plan.levelsRange}. Сейчас: ${actual || 'нет данных'}.`};
+    if(!plan.levelsRange) return {...plan,accepted:false,actual:readValue(store,'levelsRange')};
+    // Windy's newer turbulence UI may consume level in addition to levelsRange.
+    // Set center level first, then the actual range last. Neither is invented:
+    // both are valid @windy/store fields.
+    const pressure=plan.pressureLevel ? writeAndVerify(store,'level',plan.pressureLevel) : null;
+    const range=writeAndVerify(store,'levelsRange',plan.levelsRange);
+    const note=range.accepted
+      ? `Турбулентность: на карте установлен ${plan.levelsRange} (около FL300–FL386 по ISA).`
+      : `Windy не подтвердил ${plan.levelsRange} (сейчас ${range.actual??'неизвестно'}).` +
+        (pressure?.accepted ? ` Отдельный уровень ${plan.pressureLevel} установлен; диапазон проверить вручную.` :
+          ` Диапазон может быть недоступен для этой модели/версии Windy.`);
+    return {...plan,accepted:range.accepted,actual:range.actual,actualLevel:pressure?.actual??readValue(store,'level'),
+      rangeAccepted:range.accepted,pressureAccepted:pressure?.accepted??false,note};
   }
-  if(!plan.pressureLevel) return {...plan,accepted:false,actual:null};
-  const changed=store.set('level',plan.pressureLevel);
-  const actual=String(store.get('level')??'');
-  const accepted=changed||actual===plan.pressureLevel;
-  return {...plan,accepted,actual,note:accepted?plan.note:
-    `Windy не принял ${plan.pressureLevel}. Сейчас: ${actual||'нет данных'}.`};
+  if(!plan.pressureLevel) return {...plan,accepted:false,actual:readValue(store,'level')};
+  const result=writeAndVerify(store,'level',plan.pressureLevel);
+  return {...plan,accepted:result.accepted,actual:result.actual,actualLevel:result.actual,note:result.accepted?plan.note:
+    `Windy не подтвердил ${plan.pressureLevel}. Сейчас: ${result.actual||'нет данных'}.`};
 }
