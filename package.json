@@ -1,14 +1,15 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "type": "module",
   "description": "Windy route planner using navdata uploaded and converted on GitHub; no file upload in Windy",
   "main": "dist/plugin.min.js",
   "scripts": {
     "start": "rollup -w -c",
     "build": "SERVE=false rollup -c",
-    "typecheck:core": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --strict src/navdb.ts src/weather.ts src/xplane.ts src/routePlanner.ts",
-    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/weather.ts src/routePlanner.ts && sed -i \"s|'./navdb'|'./navdb.js'|g\" tests/generated/weather.js && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_weather.mjs && node tests/test_route_planner.mjs"
+    "typecheck:core": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --strict src/navdb.ts src/weather.ts src/xplane.ts src/routePlanner.ts src/plannerPointNames.ts src/offlineReport.ts src/flightAltitude.ts",
+    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/weather.ts src/routePlanner.ts src/plannerPointNames.ts src/offlineReport.ts src/flightAltitude.ts && sed -i \"s|'./navdb'|'./navdb.js'|g\" tests/generated/weather.js && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_weather.mjs && node tests/test_route_planner.mjs && node tests/test_in_app_planner.mjs && node tests/test_planner_point_names.mjs && node tests/test_offline_report.mjs && node tests/test_flight_altitude.mjs && node tests/test_flight_ui.mjs",
+    "test:layout": "node tests/test_ui_layout.mjs"
   },
   "author": "Prototype",
   "private": true,
