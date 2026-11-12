@@ -10,10 +10,18 @@ jobs:
       WINDY_API_KEY: '${{ secrets.WINDY_API_KEY }}'
     steps:
       - uses: actions/checkout@v4
-      - name: Build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify complete source and build
         run: |
           npm install
+          npm run check:imports
+          npm run check:exports
+          npm run typecheck:core
+          npm test
           npm run build
+          npm run verify:release
       - name: Publish private Windy plugin
         run: |
           if [ -z "$WINDY_API_KEY" ]; then

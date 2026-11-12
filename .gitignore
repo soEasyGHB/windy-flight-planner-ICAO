@@ -8,9 +8,5 @@ icao-export/
 
 tests/generated/
 
-# These two files must be public, generated via GitHub Actions
-!public/navdata/points.csv
-!public/navdata/airways.csv
-
-# ZIP updates uploaded to root of Codespaces must not be committed
-/Windy-Flight-Route-Analyzer*.zip
+# Uploaded raw navdata is not included in the full distribution.
+navdata-input/*.dat

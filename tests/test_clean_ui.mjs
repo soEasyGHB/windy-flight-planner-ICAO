@@ -27,6 +27,6 @@ for(const snippet of ['{status}', '{altitudeStatus}', '{offlineStatus}', 'class=
 }
 for(const handler of ['runRoute','clearRoute','setWeatherLayer','openNativeRoutePlanner','downloadPlannerGpx','saveOfflineHtml','openOfflinePrint','openWeatherProfile']) assert(main.includes('on:click={'+handler+'}'),`Handler lost: ${handler}`);
 for(const bind of ['routeText','etdDate','etdTime','fl','tas','overlay']) assert(main.includes('bind:value={'+bind+'}'),`Binding lost: ${bind}`);
-assert.equal(pkg.version,'0.8.1');
-assert(config.includes("version: '0.8.1'"));
-console.log('PASS: four compact blocks, warnings and logs hidden, seven collapsed settings groups, actions and inputs preserved, version 0.8.1');
+assert.equal(pkg.version,'0.8.2');
+assert(config.includes("version: '0.8.2'"));
+console.log('PASS: four compact blocks, warnings and logs hidden, seven collapsed settings groups, actions and inputs preserved, version 0.8.2');

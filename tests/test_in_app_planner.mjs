@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {loadDemo,parseRoute} from './generated/navdb.js';
+import {buildWindyPlannerRequest} from './generated/routePlanner.js';
+loadDemo();
+const data=buildWindyPlannerRequest(parseRoute('EHAM DCT EDDF DCT LTFM'),true);
+assert(Array.isArray(data.params.coords));
+assert.equal(data.params.view,'ifr');
+assert(data.params.coords.every(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)));
+assert(data.mapPoints.every(p=>p.ident));
+console.log('PASS: in-app planner request payload');

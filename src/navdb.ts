@@ -1,22 +1,10 @@
 // Sources: OurAirports (public domain), euvl/aviation-waypoints (MIT).
 // ICAO licensed dataset is NOT bundled. Import licensed exports only where permitted.
 export type NavPoint = { ident: string; lat: number; lon: number; type: string; source: string };
-export type RoutePoint = NavPoint & { index: number; showLabel: boolean };
-export type RouteGap = { from: string; to: string; distanceNm: number; reason: string };
+export type RoutePoint = NavPoint & { index: number; showLabel: boolean; synthetic?: boolean };
+export type RouteGap = {from:string;to:string;reason:string;distanceNm:number};
 export type ParsedRoute = { points: RoutePoint[]; segments: RoutePoint[][]; gaps: RouteGap[]; unresolved: string[]; skipped: string[]; airwayNames: string[]; expandedAirways: string[]; ambiguous: string[]; distanceNm: number };
 export type AirwayVertex = { airway:string; segment:string; seq:number; lat:number; lon:number };
-/** Waypoints explicitly resolved from the entered flight plan.
- * The airway-expanded geometry stays in ParsedRoute.points for drawing the
- * accurate track, but is never turned into a map label. Do not depend on the
- * length of safe line segments: named endpoints may be isolated by gaps. */
-export function mapLabelPoints(route: ParsedRoute): RoutePoint[] {
-  const seen = new Set<number>();
-  return route.points.filter(p => {
-    if (p.showLabel !== true || p.type === 'ATS' || seen.has(p.index)) return false;
-    seen.add(p.index);
-    return true;
-  });
-}
 const AIRWAYS:Map<string,Map<string,AirwayVertex[]>>=new Map();
 export function airwayCount():number {return AIRWAYS.size;}
 const DB: Map<string, NavPoint[]> = new Map();
@@ -118,69 +106,32 @@ export async function loadOpenSources(onProgress?: (s:string)=>void): Promise<vo
   if(err.length) onProgress?.('Недоступны источники: ' + err.map(x=>String(x.reason)).join('; '));
   onProgress?.(`Готово: ${totalPoints().toLocaleString('ru-RU')} точек; источников ${sourcesLoaded}/${EXTERNAL.length}`);
 }
-/** Resolve an HTTPS URL for public navdata stored in this GitHub repository.
- * Paste https://github.com/OWNER/REPO (main) or .../tree/BRANCH.
- * No tokens, proxies, Vercel or GitHub Pages required. Public GitHub only.
- */
-export function githubNavdataFolder(repoUrl: string):string {
-  const root = new URL(repoUrl.trim());
-  if (root.protocol !== 'https:' || root.hostname !== 'github.com')
-    throw Error('Вставьте ссылку https://github.com/USER/REPO (публичный репозиторий)');
-  const bits = root.pathname.split('/').filter(Boolean);
-  if (bits.length < 2 || (bits.length > 2 && (bits.length !== 4 || bits[2] !== 'tree')))
-    throw Error('Нужна ссылка на репозиторий GitHub или на его ветку /tree/main');
-  const [owner, repository] = bits;
-  const branch = bits.length === 4 ? bits[3] : 'main';
-  if (![owner, repository, branch].every(x => /^[a-z0-9_.-]+$/i.test(x)))
-    throw Error('Неподдерживаемый формат GitHub owner/repository/branch');
-  return `https://raw.githubusercontent.com/${owner}/${repository}/${branch}/public/navdata/`;
-}
-/** Local X-Plane snapshot: converts entirely in the browser; nothing is uploaded.
- * This source takes preference over older demo/open data when a waypoint is duplicated. */
-export function loadLocalXPlaneSnapshot(pointsCsv:string,airwaysCsv:string):{points:number;airwayVertices:number} {
-  if(!pointsCsv.startsWith('ident,latitude_deg,longitude_deg,type') || !airwaysCsv.startsWith('airway,segment,seq,latitude_deg,longitude_deg'))
-    throw Error('Неверный формат навигационного конвертера');
-  // Do not destroy the currently loaded snapshot until the headers were checked.
-  for(const [key,arr] of DB) {
-    const keep=arr.filter(p=>p.source!=='local X-Plane');
-    if(keep.length) DB.set(key,keep); else DB.delete(key);
-  }
-  AIRWAYS.clear();
-  const points=importCsv(pointsCsv,'local X-Plane');
-  const airwayVertices=importAirwaysCsv(airwaysCsv);
-  return {points,airwayVertices};
-}
-/** Link to GitHub's own file uploader, not an unauthorized upload from the Windy browser. */
-export function githubUploadUrl(repoUrl:string):string {
-  const u=new URL(repoUrl.trim());
-  githubNavdataFolder(repoUrl); // validates origin/owner/repo/branch
-  const parts=u.pathname.split('/').filter(Boolean);
-  const branch=parts[2]==='tree'?parts[3]:'main';
-  return `https://github.com/${parts[0]}/${parts[1]}/upload/${branch}/navdata-input`;
-}
-/** Fetch generated CSV directly from a PUBLIC GitHub repository. */
-export async function loadGithubSnapshot(repoUrl: string):Promise<{points:number; airwayVertices:number; cycle:string; generated:string}> {
-  const base=githubNavdataFolder(repoUrl);
-  // Cache-bust so a recent upload is not masked by a previous browser cache.
-  const stamp=Date.now();
-  const fetchFile=(name:string)=>fetch(`${base}${name}?v=${stamp}`,{cache:'no-store'});
+/** Fetch static Vercel-hosted CSV snapshot, without any API proxy or server function. */
+export async function loadHostedSnapshot(baseUrl: string):Promise<{points:number; airwayVertices:number; cycle:string; generated:string}> {
+  const root=new URL(baseUrl.trim());
+  if(root.protocol!=='https:')throw Error('Требуется HTTPS адрес сайта Vercel');
+  const pathname=root.pathname.replace(/\/$/, '');
+  // User should provide the Vercel domain root, not a full navdata file URL.
+  if(pathname && pathname!=='/')throw Error('Укажите корень Vercel сайта, например https://my-navdata.vercel.app');
+  const url=root.origin+'/navdata/';
   const [metaRes,pRes,aRes]=await Promise.all([
-    fetchFile('manifest.json'),fetchFile('points.csv'),fetchFile('airways.csv')
+    fetch(url+'manifest.json',{cache:'no-store'}),
+    fetch(url+'points.csv',{cache:'no-store'}),
+    fetch(url+'airways.csv',{cache:'no-store'})
   ]);
-  if(!metaRes.ok||!pRes.ok||!aRes.ok)
-    throw Error('GitHub не отдал navdata-файлы. Проверьте Public, ветку main и статус Actions/build-navdata');
+  if(!metaRes.ok||!pRes.ok||!aRes.ok)throw Error('Файлы navdata недоступны на Vercel');
   const meta=await metaRes.json();
-  if(meta.status!=='ready')throw Error('База пока не подготовлена: загрузите три earth_*.dat и проверьте Actions/build-navdata');
+  if(meta.status!=='ready')throw Error('База ещё не подготовлена; загрузите earth_*.dat в GitHub');
   const [points,airways]=await Promise.all([pRes.text(),aRes.text()]);
   if(!points.startsWith('ident,latitude_deg,longitude_deg,type')||!airways.startsWith('airway,segment,seq,latitude_deg,longitude_deg'))
-    throw Error('CSV из GitHub имеет неверный формат; предыдущая база сохранена');
-  // Replace only points from the hosted source; leave other open sources intact.
+    throw Error('Неверный формат CSV. Обновление отменено');
+  // Atomically downloaded before mutations. Repeated reloads replace hosted points/airways.
   for(const [key,arr] of DB) {
-    const kept=arr.filter(p=>p.source!=='GitHub navdata');
+    const kept=arr.filter(p=>p.source!=='Vercel snapshot');
     if(kept.length)DB.set(key,kept);else DB.delete(key);
   }
   AIRWAYS.clear();
-  const num=importCsv(points,'GitHub navdata');
+  const num=importCsv(points,'Vercel snapshot');
   const vertices=importAirwaysCsv(airways);
   return {points:num,airwayVertices:vertices,cycle:String(meta.airac_cycle||'не указан'),generated:String(meta.generated_utc||'')};
 }
@@ -263,160 +214,128 @@ function coordFix(token:string):NavPoint|null {
   if(m) {const lat=Number(m[2])+Number(m[3])/60,lon=Number(m[5])+Number(m[6])/60;return {ident:token,lat:m[1]==='S'?-lat:lat,lon:m[4]==='W'?-lon:lon,type:'COORD',source:'route'};}
   return null;
 }
-/** Always classify ATS designators by their route POSITION before looking up
- * same-named navaids/fixes in the world database. A bare N50 or UT54 must not
- * teleport the flight to an American navaid called N50 or UT54. */
-function airwayDesignator(token:string):boolean {
-  return AIRWAYS.has(token) || /^[A-Z]{1,2}\d{1,5}[A-Z]?$/.test(token);
+/** Points to label are precisely the fixes named in the user's OFP. */
+export function mapLabelPoints(route:ParsedRoute):RoutePoint[] {
+  const seen = new Set<string>();
+  return route.points.filter(p=>p.showLabel && p.type !== 'ATS' && !p.synthetic &&
+    !seen.has(`${p.ident}/${p.lat.toFixed(5)}/${p.lon.toFixed(5)}`) &&
+    (seen.add(`${p.ident}/${p.lat.toFixed(5)}/${p.lon.toFixed(5)}`),true));
 }
-function sourceCost(point:NavPoint):number {
-  return point.source==='local X-Plane'?0:point.source==='GitHub navdata'?2:25;
-}
-function uniqueCandidates(candidates:NavPoint[]):NavPoint[] {
-  const out:NavPoint[]=[];
-  for(const p of [...candidates].sort((a,b)=>sourceCost(a)-sourceCost(b))) {
-    if(!out.some(q=>nm(p,q)<0.6))out.push(p);
+
+/** Download a public, converted navdata snapshot from the given GitHub repository. */
+export async function loadGithubSnapshot(repoUrl:string):Promise<{points:number;airwayVertices:number;cycle:string;generated:string}> {
+  const repo=new URL(repoUrl);
+  if(repo.protocol!=='https:'||repo.hostname!=='github.com')throw Error('Укажи HTTPS адрес репозитория GitHub');
+  const parts=repo.pathname.split('/').filter(Boolean);
+  if(parts.length!==2||!parts.every(v=>/^[A-Za-z0-9_.-]+$/.test(v)))throw Error('Ожидается ссылка github.com/owner/repository');
+  const prefix=`https://raw.githubusercontent.com/${parts[0]}/${parts[1]}/main/public/navdata/`;
+  const [metaResponse,pointsResponse,airwayResponse]=await Promise.all([
+    fetch(prefix+'manifest.json',{cache:'no-store'}),
+    fetch(prefix+'points.csv',{cache:'no-store'}),
+    fetch(prefix+'airways.csv',{cache:'no-store'})
+  ]);
+  if(!metaResponse.ok||!pointsResponse.ok||!airwayResponse.ok)
+    throw Error(`Навигационная база GitHub недоступна: ${metaResponse.status}/${pointsResponse.status}/${airwayResponse.status}`);
+  const [manifest,pointCsv,airwayCsv]=await Promise.all([metaResponse.json(),pointsResponse.text(),airwayResponse.text()]);
+  if(manifest.status!=='ready' || !pointCsv.startsWith('ident,latitude_deg,longitude_deg,type') ||
+    !airwayCsv.startsWith('airway,segment,seq,latitude_deg,longitude_deg'))
+    throw Error('Снимок navdata не готов или содержит неподдерживаемый формат CSV');
+  // Validate all source files before altering the active database.
+  const validatePoints=csvRows(pointCsv);
+  const validateAirways=csvRows(airwayCsv);
+  if(validatePoints.length<2||validateAirways.length<2)throw Error('Пустая база точек или трасс');
+  for(const [id,points] of DB) {
+    const remaining=points.filter(p=>p.source!=='GitHub snapshot');
+    if(remaining.length)DB.set(id,remaining);else DB.delete(id);
   }
-  return out;
+  AIRWAYS.clear();
+  const count=importCsv(pointCsv,'GitHub snapshot');
+  const vertices=importAirwaysCsv(airwayCsv);
+  if(!count||!vertices)throw Error('Не удалось импортировать точки или трассы GitHub');
+  return {points:count,airwayVertices:vertices,
+    cycle:String(manifest.airac_cycle??'не указан'),generated:String(manifest.generated_utc??'')};
 }
-const airwayProximityCache=new Map<string,boolean>();
-function onAirway(airway:string, point:NavPoint):boolean {
-  const parts=AIRWAYS.get(airway);
-  if(!parts)return false;
-  const key=`${airway}|${point.lat.toFixed(5)}|${point.lon.toFixed(5)}`;
-  if(airwayProximityCache.has(key))return airwayProximityCache.get(key)!;
-  let found=false;
-  outer:for(const segment of parts.values())for(const vertex of segment) {
-    if(Math.abs(vertex.lat-point.lat)>0.6 || Math.abs(vertex.lon-point.lon)>1.2)continue;
-    if(nm(vertex,point)<=25){found=true;break outer;}
-  }
-  airwayProximityCache.set(key,found);
-  return found;
+
+/** Direct link for uploading a ZIP to the repo. Never uploads from the plugin. */
+export function githubUploadUrl(repoUrl:string):string {
+  return repoUrl.replace(/\/$/,'')+'/upload/main/navdata-input';
 }
-/** Contextual route resolver: minimizes distance over the ENTIRE sequence, not
- * just the preceding fix. Incomplete/implausible legs are never drawn across
- * continents. The result is for VISUALIZATION, not certified IFR navigation. */
+
+/** Safe route reconstruction: unknown ATS or missing FIX are never linked with a false line. */
 export function parseRoute(text:string):ParsedRoute {
-  const raw=text.toUpperCase().replace(/[\n\r,;]+/g,' ').split(/\s+/).filter(Boolean).map(x=>x.split('/')[0]);
+  const raw=text.toUpperCase().replace(/[\n\r,;]+/g,' ').split(/\s+/).filter(Boolean);
+  const points:RoutePoint[]=[],segments:RoutePoint[][]=[],gaps:RouteGap[]=[];
   const unresolved:string[]=[],skipped:string[]=[],airwayNames:string[]=[],expandedAirways:string[]=[],ambiguous:string[]=[];
-  const gaps:RouteGap[]=[],points:RoutePoint[]=[],segments:RoutePoint[][]=[];
-  type FixToken={ident:string;options:NavPoint[];via:string|null;direct:boolean;broken:boolean};
-  const tokens:FixToken[]=[];
-  let via:string|null=null, direct=false, broken=false;
-  const ignored=new Set(['DCT','IFR','VFR','DEP','ARR','NIL']);
-  for(let index=0;index<raw.length;index++) {
-    const item=raw[index];
-    if(!item)continue;
-    if(item==='DCT') {if(via){airwayNames.push(via);broken=true;}via=null;direct=true;continue;}
-    if(ignored.has(item)||/^(?:FL\d{2,3}|[FASM]\d{3,4}|N\d{4}F\d{3}|[-+])$/.test(item)) {skipped.push(item);continue;}
-    // ATS designation between two fixes is an airway even when a DB entry
-    // happens to share its identifier. Prefer position over identifier alone.
-    const next=raw[index+1]??'';
-    const followsPoint=(!!coordFix(next) || (DB.get(next)?.length??0)>0 || (next.length>=3 && /^[A-Z]{3,6}$/.test(next)));
-    if(airwayDesignator(item) && tokens.length>0 && followsPoint) {
-      if(via){airwayNames.push(via);broken=true;}
-      via=item;direct=false;continue;
-    }
-    const literal=coordFix(item),options=literal?[literal]:uniqueCandidates(DB.get(item)??[]);
-    if(!options.length) {unresolved.push(item);broken=true;continue;}
-    tokens.push({ident:item,options,via,direct,broken});
-    via=null;direct=false;broken=false;
-  }
-  if(via)airwayNames.push(via);
-  if(!tokens.length)return {points,segments,gaps,unresolved:[...new Set(unresolved)],skipped,airwayNames:[...new Set(airwayNames)],expandedAirways,ambiguous,distanceNm:0};
-  // Viterbi / dynamic programming; strongly penalize over-ocean shortcuts where
-  // there is no explicit coordinate/DCT. A local X-Plane fix is a PREFERENCE,
-  // but never a reason to accept a transcontinental jump.
-  const cost:number[][]=[];
-  const back:number[][]=[];
-  for(let i=0;i<tokens.length;i++) {
-    cost[i]=[];back[i]=[];
-    for(let j=0;j<tokens[i].options.length;j++) {
-      const candidate=tokens[i].options[j];
-      const origin=sourceCost(candidate);
-      if(i===0){cost[i][j]=origin;back[i][j]=-1;continue;}
-      const t=tokens[i],prev=tokens[i-1];
-      let best=Infinity,bestIndex=0;
-      for(let k=0;k<prev.options.length;k++) {
-        const p=prev.options[k],d=nm(p,candidate);
-        let transition= t.broken ? 0 : d;
-        const limit=t.direct?1600:950;
-        if(!t.broken && d>limit)transition+=20000+(d-limit)*15;
-        if(!t.broken && t.via && AIRWAYS.has(t.via)) {
-          transition+=(onAirway(t.via,p)&&onAirway(t.via,candidate))?-120:1600;
-        }
-        const value=cost[i-1][k]+transition+origin;
-        if(value<best){best=value;bestIndex=k;}
-      }
-      cost[i][j]=best;back[i][j]=bestIndex;
-    }
-  }
-  const choices=new Array<number>(tokens.length);
-  choices[choices.length-1]=cost[cost.length-1].indexOf(Math.min(...cost[cost.length-1]));
-  for(let i=choices.length-1;i>0;i--)choices[i-1]=back[i][choices[i]];
-  const selected=tokens.map((t,i)=>t.options[choices[i]]);
-  // Record remaining ambiguities even if the global minimum is preferred.
-  for(let i=0;i<tokens.length;i++) if(tokens[i].options.length>1) {
-    const chosen=selected[i];
-    const prev=i>0?selected[i-1]:null,next=i+1<selected.length?selected[i+1]:null;
-    const score=(p:NavPoint)=>(prev&&!tokens[i].broken?nm(prev,p):0)+(next&&!tokens[i+1]?.broken?nm(p,next):0);
-    const alternate=tokens[i].options.filter(p=>p!==chosen).sort((a,b)=>score(a)-score(b))[0];
-    if(!prev||!next||(alternate && Math.abs(score(chosen)-score(alternate))<120))ambiguous.push(tokens[i].ident);
-  }
-  let distanceNm=0,segment:RoutePoint[]=[];
-  // Mark explicit waypoints from the OFP separately from unnamed ATS
-  // geometry vertices (M56-2, B105-3, etc). Both remain in the polyline,
-  // but the map labels only the real, explicitly supplied route points.
-  const append=(p:NavPoint, showLabel=true)=>{
-    const prev=segment[segment.length-1];
-    if(prev&&nm(prev,p)<0.01){
-      // An expanded airway often ends on the exact FIX named in the route.
-      // Promote its invisible vertex to the actual FIX rather than losing
-      // that endpoint label when deduplicating coincident coordinates.
-      if(showLabel && !prev.showLabel){
-        prev.ident=p.ident;prev.type=p.type;prev.source=p.source;
-        prev.lat=p.lat;prev.lon=p.lon;prev.showLabel=true;
-      }
+  let active:RoutePoint[]=[],pendingAirway:string|null=null,pendingGap:string|null=null;
+  const breakSegment=()=>{if(active.length)segments.push(active);active=[];};
+  const append=(p:NavPoint,named:boolean)=>{
+    const previous=active[active.length-1];
+    if(previous&&nm(previous,p)<.01) {
+      if(named&&!previous.showLabel){previous.ident=p.ident;previous.type=p.type;previous.source=p.source;previous.showLabel=true;previous.synthetic=false;}
       return;
     }
-    if(prev)distanceNm+=nm(prev,p);
-    const r:RoutePoint={...p,index:points.length,showLabel};
-    points.push(r);segment.push(r);
+    const record:RoutePoint={...p,index:points.length,showLabel:named,synthetic:!named};
+    points.push(record);active.push(record);
   };
-  const begin=(p:NavPoint)=>{if(segment.length)segments.push(segment);segment=[];append(p);};
-  append(selected[0]);
-  for(let i=1;i<tokens.length;i++) {
-    const prev=selected[i-1],current=selected[i],t=tokens[i],d=nm(prev,current);
-    const limit=t.direct?1600:950;
-    if(t.broken) {
-      gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:'Между точками есть неизвестная запись'});
-      begin(current);continue;
+  const previousNamed=()=>[...points].reverse().find(p=>p.showLabel);
+  for(let tokenIndex=0;tokenIndex<raw.length;tokenIndex++) {
+    let item=raw[tokenIndex];
+    if(item.includes('/'))item=item.split('/')[0];
+    if(!item||['DCT','IFR','VFR','DEP','ARR','NIL'].includes(item)||/^(-|\+)$/.test(item)||
+      /^FL\d{2,3}$/.test(item)||/^(?:F\d{3}|S\d{4})$/.test(item)||/^N\d{4}F\d{3}$/.test(item)) {
+      skipped.push(item);continue;
     }
-    if(d>limit) {
-      gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Подозрительно большой переход (> ${limit} NM)`});
-      begin(current);continue;
+    // Prioritize a known airway over an identically named FIX when it occurs
+    // between two explicitly named waypoints; otherwise the airway is silently lost.
+    const nextIdent=(raw[tokenIndex+1]??'').split('/')[0];
+    if(AIRWAYS.has(item) && previousNamed() && nextIdent && nextIdent!=='DCT' &&
+       (DB.has(nextIdent)||coordFix(nextIdent))) {
+      pendingAirway=item;
+      continue;
     }
-    if(t.via) {
-      const expanded=expandAirway(t.via,prev,current);
-      if(!expanded) {
-        airwayNames.push(t.via);
-        gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Не подтверждена геометрия трассы ${t.via}`});
-        begin(current);continue;
+    const literal=coordFix(item);
+    const options=literal?[literal]:(DB.get(item)??[]);
+    if(!options.length) {
+      if(AIRWAYS.has(item)||/^(?:[A-Z]{1,2}\d{1,5}[A-Z]?|[A-Z]\d{1,4}[A-Z]?)$/.test(item)) {
+        if(pendingAirway){airwayNames.push(pendingAirway);pendingGap=pendingAirway;breakSegment();}
+        pendingAirway=item;continue;
       }
-      // Verify EVERY edge of the expansion to prevent leaps in bad source CSV.
-      const path=[prev,...expanded,current];
-      if(path.some((p,k)=>k>0&&nm(path[k-1],p)>250)) {
-        airwayNames.push(t.via);
-        gaps.push({from:tokens[i-1].ident,to:t.ident,distanceNm:d,reason:`Повреждённая геометрия трассы ${t.via}`});
-        begin(current);continue;
-      }
-      for(const p of expanded)append(p,false);
-      expandedAirways.push(t.via);
+      unresolved.push(item);
+      pendingGap=pendingGap ? pendingGap+', '+item : item;
+      breakSegment();pendingAirway=null;
+      continue;
     }
-    append(current);
+    const previous=previousNamed();
+    const sorted=previous?[...options].sort((a,b)=>nm(previous,a)-nm(previous,b)):options;
+    const chosen=sorted[0];
+    if(options.length>1 && (!previous||Math.abs(nm(previous,sorted[0])-nm(previous,sorted[1]))<80))ambiguous.push(item);
+    if(pendingGap) {
+      const from=previous?.ident??'?';
+      gaps.push({from,to:item,reason:'Неизвестная точка или трасса: '+pendingGap,distanceNm:previous?nm(previous,chosen):0});
+      pendingGap=null;
+    }
+    if(pendingAirway) {
+      if(previous && active.length) {
+        const expanded=expandAirway(pendingAirway,previous,chosen);
+        if(expanded) {for(const p of expanded)append(p,false);expandedAirways.push(pendingAirway);}
+        else {airwayNames.push(pendingAirway);
+          gaps.push({from:previous.ident,to:item,reason:'ATS '+pendingAirway+' не восстановлена',distanceNm:nm(previous,chosen)});
+          breakSegment();}
+      } else {airwayNames.push(pendingAirway);
+        if(previous)gaps.push({from:previous.ident,to:item,reason:'Недостаточно координат ATS '+pendingAirway,distanceNm:nm(previous,chosen)});
+        breakSegment();
+      }
+      pendingAirway=null;
+    } else if(previous && active.length && nm(previous,chosen)>2400 && options.length>1) {
+      gaps.push({from:previous.ident,to:item,reason:'Неоднозначный идентификатор: слишком дальний переход',distanceNm:nm(previous,chosen)});
+      ambiguous.push(item);breakSegment();
+    }
+    append(chosen,true);
   }
-  if(segment.length)segments.push(segment);
-  // A waypoint with no safe connection must not affect automatic map zoom.
+  if(pendingAirway) {airwayNames.push(pendingAirway);}
+  breakSegment();
+  let distanceNm=0;
+  for(const segment of segments)for(let i=1;i<segment.length;i++)distanceNm+=nm(segment[i-1],segment[i]);
   return {points,segments,gaps,unresolved:[...new Set(unresolved)],skipped,
     airwayNames:[...new Set(airwayNames)],expandedAirways:[...new Set(expandedAirways)],
     ambiguous:[...new Set(ambiguous)],distanceNm};

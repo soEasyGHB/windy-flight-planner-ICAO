@@ -1,166 +1,132 @@
 import { nm, interpolate } from './navdb';
-import type { NavPoint, RoutePoint } from './navdb';
-/** Pressure altitude grid for the pilot-selected cruise band (not model's fixed hPa layers). */
-export const CRUISE_FL_LEVELS = [300,310,320,330,340,350,360,370,380,390,400] as const;
-export const PRESSURES = [850,700,600,500,400,300,250,200,150,100,70,50] as const;
-export type Sample = { lat:number; lon:number; label:string; distanceNm:number; eta:Date };
-export type WeatherCell = {temp:number|null;rh:number|null;windKt:number|null;windDir:number|null;cloud:number|null;cape:number|null;geopotentialM:number|null;isaDeviationC:number|null;indicators:string[]};
-export type WeatherRow = {sample:Sample;levels:Record<number,WeatherCell>;flPressure:number;atFl:WeatherCell|null; alerts:string[];tropopauseFL:number|null;flightLevels:Record<number,WeatherCell>};
-export const standardAltitudeM = (pressureHpa:number):number =>
-  44330.77*(1-Math.pow(pressureHpa/1013.25,1/5.25588));
-/** ISA temperature at pressure altitude, not a measured tropopause. */
-export const isaTemperatureC = (pressureHpa:number):number =>
-  15 - 0.0065*Math.min(11000,Math.max(0,standardAltitudeM(pressureHpa)));
-export const isaDeviationC = (temperatureC:number,pressureHpa:number):number =>
-  temperatureC-isaTemperatureC(pressureHpa);
-/**
- * Indicative lapse-rate transition in model geopotential coordinates.
- * Does NOT implement full WMO tropopause detection or represent an aviation SIGWX product.
- * Requires measurements at >= 2 km above candidate altitude and at least 7 km MSL.
- */
-export function estimateTropopauseFL(levels:Record<number,WeatherCell>):number|null {
-  const observed=PRESSURES.map(p=>({p,z:levels[p]?.geopotentialM,t:levels[p]?.temp}))
-    .filter(v=>v.z!==null&&v.z!==undefined&&v.t!==null&&v.t!==undefined)
-    .map(v=>({p:v.p,z:v.z as number,t:v.t as number}))
-    .sort((a,b)=>a.z-b.z);
-  const tempAt=(z:number):number|null=>{
-    for(let i=1;i<observed.length;i++) {
-      const a=observed[i-1], b=observed[i];
-      if(z>=a.z && z<=b.z && b.z>a.z) return a.t+(b.t-a.t)*(z-a.z)/(b.z-a.z);
-    }
-    return null;
-  };
-  for(let i=0;i<observed.length-1;i++) {
-    const candidate=observed[i];
-    if(candidate.z<7000||candidate.z>18000)continue;
-    const upper=tempAt(candidate.z+2000);
-    if(upper===null)continue;
-    const meanLapse=(candidate.t-upper)/2; // C/km over 2 km
-    const next=observed[i+1];
-    const localLapse=(candidate.t-next.t)/((next.z-candidate.z)/1000);
-    if(localLapse<=2 && meanLapse<=2) return Math.round(candidate.z/30.48);
-  }
-  return null;
+import type { NavPoint } from './navdb';
+
+/** Open-Meteo pressure levels used for cruise-height interpolation. */
+export const PRESSURES=[850,700,600,500,400,300,250,200,150] as const;
+export const FLIGHT_LEVELS=[300,310,320,330,340,350,360,370,380,390,400] as const;
+export type Sample={lat:number;lon:number;label:string;distanceNm:number;eta:Date};
+export type WeatherCell={temp:number|null;rh:number|null;windKt:number|null;windDir:number|null;cloud:number|null;cape:number|null;isaDeviationC:number|null;indicators:string[]};
+export type WeatherRow={sample:Sample;levels:Record<number,WeatherCell>;flPressure:number;atFl:WeatherCell|null;flightLevels:Record<number,WeatherCell>;tropopauseFL:number|null;alerts:string[]};
+
+export const standardAltitudeM=(p:number):number=>44330.77*(1-Math.pow(Math.max(0.01,p)/1013.25,1/5.25588));
+export const flToHpa=(fl:number):number=>1013.25*Math.pow(Math.max(.001,1-(fl*100*.3048)/44330.77),5.25588);
+export const flLevel=(fl:number):number=>[...PRESSURES].sort((a,b)=>Math.abs(a-flToHpa(fl))-Math.abs(b-flToHpa(fl)))[0];
+export function isaTemperatureC(fl:number):number {
+  const z=fl*100*.3048;
+  return z<=11000?15-.0065*z:-56.5;
 }
-export const flToHpa=(fl:number)=>1013.25*Math.pow(Math.max(.001,1-(fl*100*0.3048)/44330.77),5.25588);
-export const flLevel=(fl:number)=>[...PRESSURES].sort((a,b)=>Math.abs(a-flToHpa(fl))-Math.abs(b-flToHpa(fl)))[0];
-export function generateSamples(points:NavPoint[], etd:Date, tasKt:number, maxPoints=10):Sample[] {
-  if(points.length<2 || !(tasKt>0)) return [];
+const round=(n:number|null):number|null=>n===null?null:Math.round(n);
+const valid=(n:unknown):number|null=>typeof n==='number'&&Number.isFinite(n)?n:null;
+/** Old equal-distance sampling API retained for interoperability with early tests. */
+export function generateSamples(points:NavPoint[],etd:Date,tasKt:number,maxPoints=10):Sample[] {
+  if(points.length<2||!(tasKt>0)||Number.isNaN(etd.getTime()))return [];
   const legs=points.slice(1).map((p,i)=>nm(points[i],p));
   const total=legs.reduce((a,b)=>a+b,0);
   const count=Math.min(maxPoints,Math.max(2,Math.ceil(total/250)+1));
-  return Array.from({length:count},(_,i)=> {
-    const position=total*i/(count-1);let remaining=position,leg=0;
-    while(leg<legs.length-1 && remaining>legs[leg]) {remaining-=legs[leg++];}
+  return Array.from({length:count},(_,i)=>{
+    const distanceNm=total*i/(count-1);let remaining=distanceNm,leg=0;
+    while(leg<legs.length-1&&remaining>legs[leg])remaining-=legs[leg++];
     const p=interpolate(points[leg],points[leg+1],legs[leg]?remaining/legs[leg]:0);
-    return {lat:p.lat,lon:p.lon,label:i===0?points[0].ident:i===count-1?points[points.length-1].ident:'S'+i,distanceNm:position,eta:new Date(etd.getTime() + position/tasKt*3600000)};
+    return {lat:p.lat,lon:p.lon,label:i===0?points[0].ident:i===count-1?points[points.length-1].ident:'S'+i,
+      distanceNm,eta:new Date(etd.getTime()+distanceNm/tasKt*3600000)};
   });
 }
-/** Each named point of the OFP gets an ETA. ATS intermediate vertices still
- * contribute to cumulative distance but never become an S1/S2 forecast column. */
-export function generateWaypointSamples(points:RoutePoint[],etd:Date,tasKt:number):Sample[] {
-  if(points.length<2 || !(tasKt>0) || !Number.isFinite(etd.getTime())) return [];
-  const result:Sample[]=[];
+/** ETA of each explicitly named OFP point, including hidden ATS vertices in flown distance. */
+export function generateWaypointSamples(points:NavPoint[],etd:Date,tasKt:number):Sample[] {
+  if(points.length<2||!(tasKt>0)||Number.isNaN(etd.getTime()))return [];
+  const samples:Sample[]=[];
   let distanceNm=0;
-  const nameCount=new Map<string,number>();
   for(let i=0;i<points.length;i++) {
-    if(i) distanceNm+=nm(points[i-1],points[i]);
-    const point=points[i];
-    if(point.showLabel!==true || point.type==='ATS') continue;
-    const count=(nameCount.get(point.ident)||0)+1;
-    nameCount.set(point.ident,count);
-    result.push({lat:point.lat,lon:point.lon,label:point.ident+(count>1?` (${count})`:''),
-      distanceNm,eta:new Date(etd.getTime()+distanceNm/tasKt*3600000)});
+    if(i)distanceNm+=nm(points[i-1],points[i]);
+    const p=points[i] as NavPoint&{showLabel?:boolean;synthetic?:boolean};
+    if(p.showLabel===false || p.synthetic===true || p.type==='ATS')continue;
+    samples.push({lat:p.lat,lon:p.lon,label:p.ident,distanceNm,
+      eta:new Date(etd.getTime()+distanceNm/tasKt*3600000)});
   }
-  return result;
+  return samples;
 }
-/** Interpolation on logarithmic pressure between model levels. The flight levels
- * are *pressure altitudes*; do not assume that a particular hPa level is FL350.
- * Wind direction is interpolated through vector components (avoids 359/001 error).
- * No extrapolation when an upper/lower model level is absent. */
-export function cellAtFlightLevel(levels:Record<number,WeatherCell>,fl:number):WeatherCell {
-  const target=flToHpa(fl);
-  const ordered=[...PRESSURES].filter(p=>levels[p]).sort((a,b)=>b-a);
-  const empty:WeatherCell={temp:null,rh:null,windKt:null,windDir:null,cloud:null,cape:null,geopotentialM:null,isaDeviationC:null,indicators:[]};
-  const exact=ordered.find(p=>Math.abs(p-target)<0.001);
-  let upper:number,lower:number;
-  if(exact!==undefined) {upper=exact;lower=exact;}
-  else {
-    const idx=ordered.findIndex((p,i)=>i<ordered.length-1 && p>target && ordered[i+1]<target);
-    if(idx<0) return empty;
-    upper=ordered[idx];lower=ordered[idx+1];
-  }
-  const a=levels[upper],b=levels[lower];
-  const blend=upper===lower?0:(Math.log(upper)-Math.log(target))/(Math.log(upper)-Math.log(lower));
-  const lerp=(x:number|null,y:number|null):number|null=>x==null||y==null?null:x+(y-x)*blend;
-  const temp=lerp(a.temp,b.temp),rh=lerp(a.rh,b.rh),cloud=lerp(a.cloud,b.cloud);
-  const geo=lerp(a.geopotentialM,b.geopotentialM);
-  let windKt:number|null=null,windDir:number|null=null;
-  if(a.windKt!=null && b.windKt!=null && a.windDir!=null && b.windDir!=null) {
-    const r=Math.PI/180;
-    const u=(1-blend)*a.windKt*Math.sin(a.windDir*r)+blend*b.windKt*Math.sin(b.windDir*r);
-    const v=(1-blend)*a.windKt*Math.cos(a.windDir*r)+blend*b.windKt*Math.cos(b.windDir*r);
-    windKt=Math.round(Math.hypot(u,v));windDir=(Math.round(Math.atan2(u,v)/r)+360)%360;
-  }
+function levelCell(hourly:Record<string,unknown[]>,i:number,p:number):WeatherCell {
+  const get=(key:string)=>valid(hourly[key+'_'+p+'hPa']?.[i]);
+  const temp=get('temperature'),rh=get('relative_humidity'),wind=get('wind_speed'),
+    dir=get('wind_direction'),cloud=get('cloud_cover'),cape=valid(hourly.cape?.[i]);
+  const fl=standardAltitudeM(p)/30.48;
+  const isaDeviationC=temp===null?null:round(temp-isaTemperatureC(fl));
   const indicators:string[]=[];
-  if(temp!=null && rh!=null && temp<=0 && temp>=-20 && rh>=80)indicators.push('условия обледенения*');
-  if(windKt!=null && windKt>=100)indicators.push('сильный ветер на высоте');
-  return {temp:temp==null?null:Math.round(temp),rh:rh==null?null:Math.round(rh),
-    windKt,windDir,cloud:cloud==null?null:Math.round(cloud),cape:lerp(a.cape,b.cape),
-    geopotentialM:geo,isaDeviationC:temp==null?null:Math.round(temp-(15-0.0065*Math.min(11000,fl*100*0.3048))),indicators};
+  if(temp!==null&&rh!==null&&temp<=0&&temp>=-20&&rh>=80)indicators.push('условия возможного обледенения*');
+  if(wind!==null&&wind>=100)indicators.push('высокая скорость ветра');
+  if(cape!==null&&cape>1000)indicators.push('CAPE повышен в районе*');
+  return {temp:round(temp),rh:round(rh),windKt:round(wind),windDir:round(dir),cloud:round(cloud),cape:round(cape),isaDeviationC,indicators};
 }
-function value(v:unknown):number|null {return typeof v==='number'&&Number.isFinite(v)?v:null;}
-const round=(v:number|null)=>v==null?null:Math.round(v);
-function cell(data:Record<string,unknown[]>,index:number,level:number):WeatherCell {
-  const get=(name:string)=>value(data[name+'_'+level+'hPa']?.[index]);
-  const t=get('temperature'), rh=get('relative_humidity'), wind=get('wind_speed'),dir=get('wind_direction'), clouds=get('cloud_cover');
-  const cape=value(data.cape?.[index]);
-  const geopotentialM=get('geopotential_height');
-  const indicators:string[]=[];
-  // NON-CERTIFIED proxies. NOT direct icing or turbulence forecasts.
-  if(t!==null && rh!==null && t<=0 && t>=-20 && rh>=80) indicators.push('условия обледенения*');
-  if(wind!==null && wind>=100) indicators.push('сильный ветер на высоте');
-  if(cape!==null && cape>1000) indicators.push('высокий CAPE (район)*');
-  return {temp:round(t),rh:round(rh),windKt:round(wind),windDir:round(dir),cloud:round(clouds),cape:round(cape),geopotentialM,isaDeviationC:t===null?null:Math.round(isaDeviationC(t,level)),indicators};
+/** Log-pressure interpolation, with vector-based wind interpolation across 0°/360°. */
+export function interpolatePressure(levels:Record<number,WeatherCell>,p:number,fl:number):WeatherCell {
+  const ps=Object.keys(levels).map(Number).sort((a,b)=>a-b);
+  let low=ps[0],high=ps[ps.length-1];
+  for(let i=0;i<ps.length;i++) {
+    if(ps[i]<=p)low=ps[i];
+    if(ps[i]>=p){high=ps[i];break;}
+  }
+  const a=levels[low],b=levels[high];
+  const fraction=low===high?0:(Math.log(p)-Math.log(low))/(Math.log(high)-Math.log(low));
+  const blend=(x:number|null,y:number|null):number|null=>x==null&&y==null?null:x==null?y:y==null?x:x+(y-x)*fraction;
+  let windKt=blend(a.windKt,b.windKt),windDir=blend(a.windDir,b.windDir);
+  if(a.windKt!=null&&b.windKt!=null&&a.windDir!=null&&b.windDir!=null){
+    const vector=(c:WeatherCell):[number,number]=>[c.windKt!*Math.cos(c.windDir!*Math.PI/180),c.windKt!*Math.sin(c.windDir!*Math.PI/180)];
+    const [ax,ay]=vector(a),[bx,by]=vector(b);
+    const x=ax+(bx-ax)*fraction,y=ay+(by-ay)*fraction;
+    windKt=Math.hypot(x,y);windDir=(Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+  const temp=blend(a.temp,b.temp);
+  const merged:WeatherCell={temp:round(temp),rh:round(blend(a.rh,b.rh)),cloud:round(blend(a.cloud,b.cloud)),
+    windKt:round(windKt),windDir:round(windDir),cape:round(blend(a.cape,b.cape)),
+    isaDeviationC:temp==null?null:round(temp-isaTemperatureC(fl)),indicators:[]};
+  return merged;
 }
-// For non-commercial prototype only. Forecast is separate from Windy weather model.
-// Open-Meteo API accepts arrays of lat/lon and returns arrays of model objects.
+/** Rough diagnostic only; not SIGWX nor a certified tropopause product. */
+export function estimateTropopauseFL(levels:Record<number,WeatherCell>):number|null {
+  const levelsUp=Object.keys(levels).map(Number).sort((a,b)=>b-a);
+  for(let i=1;i<levelsUp.length;i++) {
+    const pa=levelsUp[i-1],pb=levelsUp[i],ta=levels[pa].temp,tb=levels[pb].temp;
+    if(ta==null||tb==null)continue;
+    const lapse=(ta-tb)/((standardAltitudeM(pb)-standardAltitudeM(pa))/1000);
+    if(lapse<=2&&standardAltitudeM(pb)>=7000)return Math.round(standardAltitudeM(pb)/30.48/10)*10;
+  }
+  return null;
+}
 export async function loadWeather(samples:Sample[],fl:number,progress?:(s:string)=>void):Promise<WeatherRow[]> {
-  if(!samples.length) return [];
-  const vars=['cape'];for(const p of PRESSURES) for(const v of ['temperature','relative_humidity','wind_speed','wind_direction','cloud_cover','geopotential_height']) vars.push(v+'_'+p+'hPa');
+  if(!samples.length)return [];
+  const variables=['cape'];
+  for(const p of PRESSURES)for(const type of ['temperature','relative_humidity','wind_speed','wind_direction','cloud_cover'])variables.push(type+'_'+p+'hPa');
   const rows:WeatherRow[]=[];
-  for(let pos=0;pos<samples.length;pos+=5) {
-    const part=samples.slice(pos,pos+5);
-    progress?.('Погода ' + (pos+1) + '–' + (pos+part.length) + '/' + samples.length);
-    const u=new URL('https://api.open-meteo.com/v1/forecast');
-    u.searchParams.set('latitude',part.map(p=>p.lat.toFixed(4)).join(','));
-    u.searchParams.set('longitude',part.map(p=>p.lon.toFixed(4)).join(','));
-    u.searchParams.set('hourly',vars.join(','));u.searchParams.set('timezone','GMT');u.searchParams.set('wind_speed_unit','kn');
-    u.searchParams.set('forecast_days','8');
-    const response=await fetch(u.toString());
-    if(!response.ok) throw Error(`Open-Meteo HTTP ${response.status} — ${await response.text().then(t=>t.slice(0,180))}`);
-    const payload=await response.json();
-    const items=Array.isArray(payload)?payload:[payload];
-    if(items.length!==part.length) throw Error('Некорректный ответ Open-Meteo для группы координат');
-    items.forEach((item:any,i:number)=> {
-      const hourly:Record<string,unknown[]> = item.hourly || {};
-      const time=hourly.time as string[]|undefined;
-      if(!time?.length) throw Error('Нет почасового прогноза в ответе');
-      const target=part[i].eta.getTime();
-      const index=time.map(s=>Date.parse(s+'Z')).reduce((best,t,j)=>Math.abs(t-target)<Math.abs(Date.parse(time[best]+'Z')-target)?j:best,0);
-      if(Math.abs(Date.parse(time[index]+'Z')-target)>60*60*1000) throw Error('ETA выходит за доступный горизонт прогноза для ' + part[i].label);
+  for(let start=0;start<samples.length;start+=3){
+    const batch=samples.slice(start,start+3);
+    progress?.(`Погода: ${start+1}–${start+batch.length} / ${samples.length}`);
+    const url=new URL('https://api.open-meteo.com/v1/forecast');
+    url.searchParams.set('latitude',batch.map(s=>s.lat.toFixed(4)).join(','));
+    url.searchParams.set('longitude',batch.map(s=>s.lon.toFixed(4)).join(','));
+    url.searchParams.set('hourly',variables.join(','));url.searchParams.set('timezone','GMT');
+    url.searchParams.set('wind_speed_unit','kn');url.searchParams.set('forecast_days','16');
+    const response=await fetch(url.toString());
+    if(!response.ok)throw Error(`Open-Meteo HTTP ${response.status}`);
+    const raw=await response.json();
+    const items=Array.isArray(raw)?raw:[raw];
+    if(items.length!==batch.length)throw Error('Ответ Open-Meteo не соответствует запрошенным точкам');
+    for(let i=0;i<batch.length;i++){
+      const hourly=items[i].hourly as Record<string,unknown[]>;
+      const times=hourly?.time as string[]|undefined;
+      if(!times?.length)throw Error('Open-Meteo не вернул почасовой прогноз');
+      const epoch=(str:string)=>Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(str)?str:str+'Z');
+      const millis=batch[i].eta.getTime();
+      let nearest=0;
+      for(let ti=1;ti<times.length;ti++)if(Math.abs(epoch(times[ti])-millis)<Math.abs(epoch(times[nearest])-millis))nearest=ti;
+      if(Math.abs(epoch(times[nearest])-millis)>90*60000)throw Error('ETA выходит за горизонт прогноза: '+batch[i].label);
       const levels={} as Record<number,WeatherCell>;
-      for(const p of PRESSURES) levels[p]=cell(hourly,index,p);
-      const flPressure=flLevel(fl),atFl=levels[flPressure];
-      const alerts=[...atFl.indicators];
-      const levIdx=PRESSURES.indexOf(flPressure);
-      const neigh=PRESSURES[levIdx+1] || PRESSURES[levIdx-1];
-      const v1=atFl.windKt,v2=levels[neigh]?.windKt;
-      if(v1!==null && v2!=null && Math.abs(v1-v2)>=35)alerts.push('перепад скорости ветра между уровнями*');
+      for(const p of PRESSURES)levels[p]=levelCell(hourly,nearest,p);
       const flightLevels={} as Record<number,WeatherCell>;
-      for(const f of CRUISE_FL_LEVELS) flightLevels[f]=cellAtFlightLevel(levels,f);
-      rows.push({sample:part[i],levels,flPressure,atFl,alerts,tropopauseFL:estimateTropopauseFL(levels),flightLevels});
-    });
+      for(const level of FLIGHT_LEVELS)flightLevels[level]=interpolatePressure(levels,flToHpa(level),level);
+      const flPressure=flLevel(fl),atFl=interpolatePressure(levels,flToHpa(fl),fl);
+      rows.push({sample:batch[i],levels,flightLevels,flPressure,atFl,
+        tropopauseFL:estimateTropopauseFL(levels),alerts:[...atFl.indicators]});
+    }
   }
   return rows;
 }
