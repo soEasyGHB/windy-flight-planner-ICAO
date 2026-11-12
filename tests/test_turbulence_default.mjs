@@ -6,7 +6,7 @@ assert(src.includes("let overlay='thunder';"),'Default Windy overlay must be thu
 assert(src.includes('let fl=360;'),'Default flight level must be FL360');
 assert(src.includes('for (const delay of [180,600,1300,3000])'),'Windy altitude updates must retry after late product loading');
 assert(src.includes('if(requestId===altitudeRequestId) updateWindyAltitude(requestId)'),'Old retries must not overwrite new FL');
-assert(src.includes('onDestroy(()=>{saveFlightInputs();cancelAltitudeRetries();clearMap();});'),'Timers must be cleared and state saved');
+assert(src.includes('onDestroy(()=>{saveFlightInputs();cancelAltitudeRetries();clearGpxDownload();clearMap();});'),'Timers must be cleared and state saved');
 assert(alt.includes("DEFAULT_TURBULENCE_RANGE = '300h-200h'"),'Default turbulence band must be 300h–200h');
 assert(alt.includes("writeAndVerify(store,'levelsRange',plan.levelsRange)"),'Altitude sync must write levelsRange');
 assert(alt.includes("writeAndVerify(store,'level',plan.pressureLevel)"),'Altitude sync must set center level if available');

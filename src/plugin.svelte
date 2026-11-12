@@ -53,9 +53,23 @@
     <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-export">
       <h3 id="fr-section-export">Планировщик полёта</h3>
       <div class="fr-action-grid fr-action-grid--single">
-        <button type="button" disabled={busy} on:click={downloadPlannerGpx}>Скачать GPX файл маршрута</button>
-        <button type="button" class="primary" disabled={busy} on:click={openNativeRoutePlanner}>Открыть планировщик полёта</button>
+        {#if windyPlannerHref}
+          <!-- Windy's documented /distance URL opens its own planner with prefilled coordinates. -->
+          <a class="fr-gpx-download fr-native-route-link" href={windyPlannerHref} target="_blank" rel="noopener noreferrer">Открыть маршрут в штатном планировщике Windy</a>
+        {:else}
+          <button type="button" disabled>Открыть маршрут в штатном планировщике Windy</button>
+        {/if}
+        <div class="fr-gpx-feedback" role="status" aria-live="polite">{windyPlannerFeedback}</div>
+        {#if gpxDownloadHref}
+          <!-- A real user-activated link: synthetic anchor.click() can be ignored in Windy/iPad webviews. -->
+          <a class="fr-gpx-download" href={gpxDownloadHref} download={gpxFileName} on:click={downloadPlannerGpx}>Скачать GPX файл маршрута</a>
+        {:else}
+          <button type="button" on:click={downloadPlannerGpx}>Скачать GPX файл маршрута</button>
+        {/if}
+        <button type="button" disabled={!gpxXml} on:click={sharePlannerGpx}>Поделиться GPX / Сохранить в Файлы (iPad)</button>
+        <button type="button" on:click={openNativeRoutePlanner}>Попробовать открыть в текущем окне Windy</button>
       </div>
+      <div class="fr-gpx-feedback" role="status" aria-live="polite">{gpxFeedback}</div>
     </section>
   </div>
 
@@ -74,7 +88,7 @@
         {#if overlay === 'radar'}<p class="small">Радар — наблюдения, не высотный прогноз. В отдельных версиях Windy доступ из плагина может быть ограничен.</p>{/if}
         {#if offlineStatus}<p class="info">{offlineStatus}</p>{/if}
         <p class="small">TAS фиксирована: 450 kt. Эшелон не вводится вручную: отдельно рассчитываются метеорологические рекомендации для чётных и нечётных FL330–390. ETA приблизительный, без ATS и ветровой поправки. Таблица: Open-Meteo GFS напрямую, без API-ключа и Vercel. Данные карты Windy могут отличаться.</p>
-        <p class="small">Перед открытием штатного Route Planner карта синхронизируется с ETD. Его внутренние параметры не задаются через публичный API; проверь их в Windy.</p>
+        <p class="small">Кнопка «Открыть маршрут в штатном планировщике Windy» использует документированную ссылку /distance и открывает новую вкладку. Точки берутся из подтверждённой геометрии. ETD, TAS, FL и внутренние настройки Windy не передаются ссылкой — проверь их вручную. Кнопка открытия в текущем окне остаётся экспериментальной.</p>
         </div>
       </details>
       {#if timeWaypoints.length}
@@ -413,7 +427,9 @@
   import {generateWaypointSamples,flLevel,PRESSURES,standardAltitudeM,loadWeather} from './weather';
   import {applyWindyAltitude} from './flightAltitude';
   import {buildRouteProfile,yForFlightLevel} from './profileChart';
-  import {buildWindyPlannerRequest,makeRouteGpx,routeIssues} from './routePlanner';
+  import {buildWindyPlannerRequest,routeIssues} from './routePlanner';
+  import {buildWindyDistanceLink} from './windyDistanceLink';
+  import {prepareGpxPayload,createGpxHref,makeGpxShareFile} from './gpxDownload';
   import {installPlannerPointNames,clearPlannerPointNames} from './plannerPointNames';
   import {buildOfflineBrief} from './offlineReport';
   import type {WeatherOverlayName} from './offlineReport';
@@ -429,6 +445,44 @@
   let parsed:ParsedRoute|null=null;
   let routeExportWarning='';
   let canExportRoute=false;
+  let gpxDownloadHref='';
+  let gpxFileName='windy-flight-route.gpx';
+  let gpxFeedback='Сначала построй маршрут для подготовки GPX.';
+  let gpxXml='';
+  let gpxIsPartial=false;
+  let windyPlannerHref='';
+  let windyPlannerFeedback='Сначала построй маршрут для открытия в штатном планировщике Windy.';
+  function prepareWindyRouteLink():void {
+    windyPlannerHref='';
+    if(!parsed) {windyPlannerFeedback='Сначала построй маршрут.';return;}
+    try {
+      const handoff=buildWindyDistanceLink(parsed,true);
+      windyPlannerHref=handoff.url;
+      windyPlannerFeedback=handoff.partial
+        ? `Внимание: маршрут НЕПОЛНЫЙ. Windy откроет только подтверждённый участок ${handoff.from} → ${handoff.to} (${handoff.verticesSent} точек). Неизвестные участки не соединяются.`
+        : `Готово: ${handoff.verticesSent} точек передаются прямо в Windy, без GPX и API-ключа. Откроется новая вкладка. Проверь время и параметры полёта в Windy.`;
+    } catch(err) {
+      windyPlannerFeedback='Невозможно открыть маршрут по ссылке: '+String(err)+'. Проверь диагностику маршрута или используй GPX.';
+    }
+  }
+  function clearGpxDownload():void {
+    if(gpxDownloadHref.startsWith('blob:')) try { URL.revokeObjectURL(gpxDownloadHref); } catch (_err) {}
+    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;
+  }
+  function prepareGpxDownload():void {
+    clearGpxDownload();
+    if(!parsed) {gpxFeedback='Сначала построй маршрут.';return;}
+    try {
+      const item=prepareGpxPayload(parsed);
+      gpxXml=item.xml;gpxFileName=item.filename;gpxIsPartial=item.partial;
+      gpxDownloadHref=createGpxHref(item);
+      gpxFeedback=item.partial
+        ? `GPX готов: ${item.pointCount} именованных точек, ${item.routeCount} подтверждённых участка(ов). Файл ЧАСТИЧНЫЙ — есть разрывы/неизвестные точки.`
+        : `GPX готов: ${item.pointCount} именованных точек. Нажми «Скачать GPX».`;
+    } catch(err) {
+      gpxFeedback='GPX недоступен: '+String(err)+'. Проверь маршрут и навигационную базу.';
+    }
+  }
   $: {
     const r=parsed;
     routeExportWarning=!r?'сначала построй маршрут':
@@ -471,6 +525,9 @@
   function routeInputChanged(event:Event):void {
     routeText=(event.currentTarget as HTMLTextAreaElement).value;
     parsed=null;
+    clearGpxDownload();
+    gpxFeedback='Маршрут изменён. Нажми «Построить маршрут», затем «Скачать GPX».';
+    windyPlannerHref='';windyPlannerFeedback='Маршрут изменён. Сначала нажми «Построить маршрут».';
     weather=[];
     profileOpen=false;
     profileState='idle';
@@ -506,10 +563,13 @@
     }
     lines=[];markers=[];
   };
-  const clearRoute=()=>{clearPlannerPointNames();clearMap();routeText='';parsed=null;labeledCount=0;weather=[];timeWaypoints=[];profileOpen=false;status='Маршрут очищен';saveFlightInputs();};
+  const clearRoute=()=>{clearPlannerPointNames();clearMap();routeText='';parsed=null;clearGpxDownload();windyPlannerHref='';windyPlannerFeedback='Сначала введи и построй маршрут.';gpxFeedback='Сначала введи и построй маршрут.';labeledCount=0;weather=[];timeWaypoints=[];profileOpen=false;status='Маршрут очищен';saveFlightInputs();};
   function runRoute():void {
     saveFlightInputs();
     clearPlannerPointNames();clearMap();weather=[];profileOpen=false;parsed=parseNamedFixRoute(routeText);
+    // Prepare both direct Windy link and GPX before map layers: independent of network.
+    prepareWindyRouteLink();
+    prepareGpxDownload();
     const safeSegments=parsed.segments.filter(s=>s.length>=2);
     const namedFixes=mapLabelPoints(parsed);
     labeledCount=0;
@@ -708,27 +768,38 @@
       status='Не удалось открыть в Windy: '+String(err)+'. Можно попробовать GPX по отдельным подтверждённым участкам.';
     }
   }
-  function downloadPlannerGpx():void {
-    if(!parsed){status='Сначала построй маршрут';return;}
+  function downloadPlannerGpx(event:MouseEvent):void {
+    // The HTML <a download> performs the download directly from this trusted click.
+    // Do NOT programmatically trigger a download or sharing here; embedded iPad WebKit can silently ignore it.
+    if(!gpxDownloadHref) {
+      event.preventDefault();
+      gpxFeedback=parsed?'GPX пока недоступен: сначала проверь распознанные точки и непрерывные участки.':'Сначала нажми «Построить маршрут».';
+      return;
+    }
+    gpxFeedback=(gpxIsPartial?'Запрошено скачивание ЧАСТИЧНОГО GPX (разрывы маршрута не соединяются). ':'Запрошено скачивание GPX. ')+
+      'Если iPad не сохранил файл, используй «Поделиться GPX / Сохранить в Файлы» ниже.';
+  }
+  async function sharePlannerGpx():Promise<void> {
+    if(!gpxXml){gpxFeedback='GPX не подготовлен. Сначала построй маршрут.';return;}
     try {
-      const partial=!canExportRoute;
-      const content=makeRouteGpx(parsed,{allowPartial:partial,acceptAmbiguous:true});
-      const filename=partial?'windy-route-PARTIAL.gpx':'windy-flight-route.gpx';
-      const file=new File([content],filename,{type:'application/gpx+xml'});
-      // Share Sheet enables Save to Files on iPad, where synthetic <a download>
-      // can be silently ignored in native in-app browsers.
-      if(typeof navigator.share==='function' && (!navigator.canShare || navigator.canShare({files:[file]}))) {
-        status=partial?'Создан ЧАСТИЧНЫЙ GPX с отдельными проверенными участками. Проверь разрывы! Открываю меню «Поделиться».':'Открываю меню «Поделиться» — выбери «Сохранить в Файлы».';
-        void navigator.share({files:[file]}).catch(e=>{status='Сохранение GPX отменено/недоступно: '+String(e);});
+      const file=makeGpxShareFile({xml:gpxXml,filename:gpxFileName,partial:gpxIsPartial,pointCount:0,routeCount:0});
+      if(!file || typeof navigator.share!=='function') {
+        gpxFeedback='Меню «Поделиться» недоступно в этом браузере. Нажми обычную ссылку «Скачать GPX» выше.';
         return;
       }
-      const url=URL.createObjectURL(file);
-      const anchor=document.createElement('a');
-      anchor.href=url;anchor.download=filename;
-      document.body.appendChild(anchor);anchor.click();anchor.remove();
-      setTimeout(()=>URL.revokeObjectURL(url),30000);
-      status=(partial?'ЧАСТИЧНЫЙ GPX: участки раздельны, пробелы не соединены. ':'GPX подготовлен. ')+'В Windy: Distance & planning → More → Import GPX.';
-    } catch(err){status='GPX не создан: '+String(err);}
+      if(typeof navigator.canShare==='function' && !navigator.canShare({files:[file]})) {
+        gpxFeedback='Сохранение файла через «Поделиться» здесь не поддерживается. Используй «Скачать GPX» выше.';
+        return;
+      }
+      // The native share sheet must be invoked synchronously from the user gesture,
+      // before any await, to preserve Safari's transient user activation.
+      const sharing=navigator.share({files:[file]});
+      gpxFeedback='Открыто меню «Поделиться»: выбери «Сохранить в Файлы».';
+      await sharing;
+      gpxFeedback='Файл передан в выбранное приложение (проверь сохранение в «Файлах»).';
+    } catch(err) {
+      gpxFeedback='Не удалось передать GPX через «Поделиться»: '+String(err)+'. Попробуй обычное скачивание выше.';
+    }
   }
 
   function showReportWeatherLayer():void {
@@ -943,7 +1014,7 @@
     // Failures are visible and never silently replaced with an alleged full AIRAC database.
     (async()=>{await updateHosted();await reloadSources();})();
   });
-  onDestroy(()=>{saveFlightInputs();cancelAltitudeRetries();clearMap();});
+  onDestroy(()=>{saveFlightInputs();cancelAltitudeRetries();clearGpxDownload();clearMap();});
 </script>
 <style lang="less">
   .flightplanner .fr-main-stack {display:flex;flex-direction:column;gap:12px;margin:10px 0 14px;}
@@ -955,6 +1026,12 @@
   .flightplanner .fr-main-card--light button:not(.primary) {background:#747c87;color:#fff;border-color:#a0a9b2;}
   .flightplanner .fr-main-card--light button.primary {background:#2f74b5;color:#fff;border-color:#2f74b5;}
   .flightplanner .fr-main-card .btnrow {margin-bottom:3px;}
+  .flightplanner .fr-gpx-download {display:block;text-align:center;box-sizing:border-box;min-height:44px;line-height:24px;
+    padding:9px 10px;border:1px solid #a0a9b2;border-radius:6px;background:#747c87;color:#fff;
+    font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;}
+  .flightplanner .fr-native-route-link {background:#2f74b5;border-color:#2f74b5;}
+  .flightplanner .fr-gpx-download:focus-visible {outline:2px solid #fff;outline-offset:2px;}
+  .flightplanner .fr-gpx-feedback {font-size:11px;color:#dce9f5;line-height:1.45;overflow-wrap:anywhere;margin:2px 0 4px;}
   .flightplanner .fr-param-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
   .flightplanner .fr-param-stack {display:grid;grid-template-columns:1fr;gap:10px;}
   .flightplanner .fr-param-stack>div {min-width:0;max-width:100%;}
