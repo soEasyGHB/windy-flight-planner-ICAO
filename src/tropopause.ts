@@ -2,7 +2,6 @@
  * temperature AND model geopotential heights (not standard-atmosphere heights).
  * It is not an ICAO/SIGWX tropopause forecast; unresolved columns remain null.
  */
-import type {Sample} from './weather';
 export const TROPOPAUSE_PRESSURES=[700,600,500,400,300,250,200,150,100,50] as const;
 const valid=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
 const key=(variable:string,p:number)=>`${variable}_${p}hPa`;
@@ -23,42 +22,4 @@ export function estimateModelTropopauseFL(column:Column[]):number|null {
     if(avg<=2)return Math.round(a.heightM/30.48);
   }
   return null;
-}
-export async function loadTropopause(samples:Sample[]):Promise<Array<number|null>> {
-  const result=new Array<number|null>(samples.length).fill(null);
-  for(let start=0;start<samples.length;start+=6){
-    const batch=samples.slice(start,start+6);
-    const hourly=TROPOPAUSE_PRESSURES.flatMap(p=>[key('temperature',p),key('geopotential_height',p)]);
-    const url=new URL('https://api.open-meteo.com/v1/forecast');
-    url.searchParams.set('latitude',batch.map(s=>s.lat.toFixed(4)).join(','));
-    url.searchParams.set('longitude',batch.map(s=>s.lon.toFixed(4)).join(','));
-    url.searchParams.set('hourly',hourly.join(','));
-    url.searchParams.set('timezone','GMT');url.searchParams.set('forecast_days','16');
-    url.searchParams.set('models','gfs_seamless'); // same model family as Windy GFS, separate provider/run
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
-    let response:Response;
-    try{response=await fetch(url.toString(),{signal:controller.signal});}
-    finally{clearTimeout(timer);}
-    if(!response.ok)throw Error(`Open-Meteo tropopause HTTP ${response.status}`);
-    const raw=await response.json();
-    const items=Array.isArray(raw)?raw:[raw];
-    if(items.length!==batch.length)throw Error('Неверное число колонок тропопаузы');
-    for(let i=0;i<batch.length;i++){
-      const data=items[i]?.hourly as Record<string,unknown[]> | undefined;
-      const times=data?.time as string[] |undefined;
-      if(!times?.length)continue;
-      const toTime=(x:string)=>Date.parse(x.endsWith('Z')?x:x+'Z');
-      let ti=0;
-      for(let j=1;j<times.length;j++)if(Math.abs(toTime(times[j])-batch[i].eta.getTime())<Math.abs(toTime(times[ti])-batch[i].eta.getTime()))ti=j;
-      if(Math.abs(toTime(times[ti])-batch[i].eta.getTime())>90*60000)continue;
-      const profile:Column[]=[];
-      for(const p of TROPOPAUSE_PRESSURES){
-        const heightM=data?.[key('geopotential_height',p)]?.[ti];
-        const tempC=data?.[key('temperature',p)]?.[ti];
-        if(valid(heightM)&&valid(tempC))profile.push({heightM,tempC});
-      }
-      result[start+i]=estimateModelTropopauseFL(profile);
-    }
-  }
-  return result;
 }

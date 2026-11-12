@@ -14,6 +14,8 @@ assert(workflow.indexOf('npm run verify:release') < workflow.indexOf('Publish pr
 const script=entry.match(/<script\s+lang=['"]ts['"]>([\s\S]*?)<\/script>/)?.[1];
 assert(script,'Svelte component must contain a TS script');
 const imports=Array.from(script.matchAll(/\bfrom\s+['"](\.\/[^'"]+)['"]/g),v=>v[1]);
-assert(imports.some(v=>v==='./windyWeather'),'main component must import weather client');
+assert(imports.some(v=>v==='./weather'),'main component must import key-free weather client');
+assert(entry.includes('loadWeather(samples,Number(fl)'), 'forecast must use direct Open-Meteo client');
+assert(!/WINDY_POINT_FORECAST_KEY|windyApiBaseUrl|saveForecastSettings/.test(entry),'legacy Windy Point Forecast key/UI must not remain');
 assert(imports.some(v=>v==='./profileChart'),'main component must import profile computation');
-console.log(`PASS: Rollup resolves extensionless TypeScript imports; dist/package.json is copied; actual build and release gate enabled (${imports.length} local TS imports)`);
+console.log(`PASS: Rollup resolves extensionless TypeScript imports; Open-Meteo is direct; dist/package.json is copied; actual build and release gate enabled (${imports.length} local TS imports)`);

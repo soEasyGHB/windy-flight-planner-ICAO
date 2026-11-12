@@ -9,7 +9,7 @@ assert.equal((main.match(/class="fr-main-card fr-main-card--light/g)||[]).length
 for(const forbidden of ['class="warning"','class="info"','class="small"','class="disclaimer"','role="alert"','class="stats"'])
  assert(!main.includes(forbidden),`Unexpected message in main: ${forbidden}`);
 assert(!main.includes('<p '),'Main should contain five action cards');
-for(const label of ['Сообщения, ошибки и ограничения','ETA по точкам','Диагностика маршрута','Модель карты и время Windy','Источник данных Windy Point Forecast','Офлайн-отчёт и снимок карты','Прогноз и таблицы FL300–FL400','Дополнительные действия','Навигационная база данных'])
+for(const label of ['Сообщения, ошибки и ограничения','ETA по точкам','Диагностика маршрута','Модель карты и время Windy','Источник прогноза: Open-Meteo GFS','Офлайн-отчёт и снимок карты','Прогноз и таблицы FL300–FL400','Дополнительные действия','Навигационная база данных'])
  assert(settings.includes(label),`Missing settings spoiler: ${label}`);
 assert.equal((markup.match(/class="fr-settings-group"/g)||[]).length,9);
 assert(!markup.includes('<details class="fr-settings" open'));

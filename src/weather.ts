@@ -1,9 +1,13 @@
 import { nm, interpolate } from './navdb';
 import type { NavPoint } from './navdb';
+import {estimateModelTropopauseFL,TROPOPAUSE_PRESSURES} from './tropopause';
 
 /** Open-Meteo pressure levels used for cruise-height interpolation. */
 export const PRESSURES=[850,700,600,500,400,300,250,200,150] as const;
 export const FLIGHT_LEVELS=[300,310,320,330,340,350,360,370,380,390,400] as const;
+export const FORECAST_PROVIDER='Open-Meteo · NOAA GFS' as const;
+export const MAX_FORECAST_WAYPOINTS=80;
+export const OPEN_METEO_URL='https://api.open-meteo.com/v1/forecast';
 export type Sample={lat:number;lon:number;label:string;distanceNm:number;eta:Date};
 export type WeatherCell={temp:number|null;rh:number|null;windKt:number|null;windDir:number|null;cloud:number|null;cape:number|null;isaDeviationC:number|null;indicators:string[]};
 export type WeatherRow={sample:Sample;levels:Record<number,WeatherCell>;flPressure:number;atFl:WeatherCell|null;flightLevels:Record<number,WeatherCell>;tropopauseFL:number|null;alerts:string[]};
@@ -67,7 +71,7 @@ export function interpolatePressure(levels:Record<number,WeatherCell>,p:number,f
   }
   const a=levels[low],b=levels[high];
   const fraction=low===high?0:(Math.log(p)-Math.log(low))/(Math.log(high)-Math.log(low));
-  const blend=(x:number|null,y:number|null):number|null=>x==null&&y==null?null:x==null?y:y==null?x:x+(y-x)*fraction;
+  const blend=(x:number|null,y:number|null):number|null=>x===null||y===null?null:x+(y-x)*fraction;
   let windKt=blend(a.windKt,b.windKt),windDir=blend(a.windDir,b.windDir);
   if(a.windKt!=null&&b.windKt!=null&&a.windDir!=null&&b.windDir!=null){
     const vector=(c:WeatherCell):[number,number]=>[c.windKt!*Math.cos(c.windDir!*Math.PI/180),c.windKt!*Math.sin(c.windDir!*Math.PI/180)];
@@ -81,7 +85,7 @@ export function interpolatePressure(levels:Record<number,WeatherCell>,p:number,f
     isaDeviationC:temp==null?null:round(temp-isaTemperatureC(fl)),indicators:[]};
   return merged;
 }
-/** Rough diagnostic only; not SIGWX nor a certified tropopause product. */
+/** Backward-compatible rough diagnostic, not the production tropopause method. */
 export function estimateTropopauseFL(levels:Record<number,WeatherCell>):number|null {
   const levelsUp=Object.keys(levels).map(Number).sort((a,b)=>b-a);
   for(let i=1;i<levelsUp.length;i++) {
@@ -92,21 +96,56 @@ export function estimateTropopauseFL(levels:Record<number,WeatherCell>):number|n
   }
   return null;
 }
+
+/** Prepare a single GFS model request for both the flight-level table and
+ * model-height-based thermal tropopause. Data are requested only for ETA dates,
+ * avoiding 16 days of unnecessary hourly values on mobile devices.
+ */
+export function makeForecastUrl(batch:Sample[]):URL {
+  if(!batch.length)throw Error('Open-Meteo: не указаны точки прогноза');
+  const variables=new Set<string>(['cape']);
+  for(const p of PRESSURES)for(const kind of ['temperature','relative_humidity','wind_speed','wind_direction','cloud_cover'])
+    variables.add(`${kind}_${p}hPa`);
+  for(const p of TROPOPAUSE_PRESSURES){
+    variables.add(`temperature_${p}hPa`);
+    variables.add(`geopotential_height_${p}hPa`);
+  }
+  const dateTimes=batch.map(point=>{
+    if(!Number.isFinite(point.lat)||!Number.isFinite(point.lon)||Math.abs(point.lat)>90||Math.abs(point.lon)>180)
+      throw Error(`Недопустимые координаты точки ${point.label}`);
+    const ms=point.eta.getTime();
+    if(!Number.isFinite(ms))throw Error(`Недопустимое ETA точки ${point.label}`);
+    return ms;
+  });
+  const date=(ms:number)=>new Date(ms).toISOString().slice(0,10);
+  const url=new URL(OPEN_METEO_URL);
+  url.searchParams.set('latitude',batch.map(s=>s.lat.toFixed(4)).join(','));
+  url.searchParams.set('longitude',batch.map(s=>s.lon.toFixed(4)).join(','));
+  url.searchParams.set('hourly',[...variables].join(','));
+  url.searchParams.set('timezone','GMT');
+  url.searchParams.set('wind_speed_unit','kn');
+  url.searchParams.set('models','gfs_seamless');
+  url.searchParams.set('cell_selection','nearest');
+  url.searchParams.set('start_date',date(Math.min(...dateTimes)));
+  url.searchParams.set('end_date',date(Math.max(...dateTimes)));
+  return url;
+}
+
+const epochUtc=(str:string):number=>Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(str)?str:str+'Z');
+
+/** Direct, key-free Open-Meteo GFS forecast.
+ * Windy Point Forecast key and Vercel address are NOT required.
+ * Windy map overlay data remain independent.
+ */
 export async function loadWeather(samples:Sample[],fl:number,progress?:(s:string)=>void):Promise<WeatherRow[]> {
   if(!samples.length)return [];
-  const variables=['cape'];
-  for(const p of PRESSURES)for(const type of ['temperature','relative_humidity','wind_speed','wind_direction','cloud_cover'])variables.push(type+'_'+p+'hPa');
+  if(samples.length>MAX_FORECAST_WAYPOINTS)
+    throw Error(`Маршрут содержит более ${MAX_FORECAST_WAYPOINTS} точек; сократи маршрут для метеоанализа.`);
   const rows:WeatherRow[]=[];
-  for(let start=0;start<samples.length;start+=3){
+  for(let start=0;start<samples.length;start+=3) {
     const batch=samples.slice(start,start+3);
-    progress?.(`Погода: ${start+1}–${start+batch.length} / ${samples.length}`);
-    const url=new URL('https://api.open-meteo.com/v1/forecast');
-    url.searchParams.set('latitude',batch.map(s=>s.lat.toFixed(4)).join(','));
-    url.searchParams.set('longitude',batch.map(s=>s.lon.toFixed(4)).join(','));
-    url.searchParams.set('hourly',variables.join(','));url.searchParams.set('timezone','GMT');
-    url.searchParams.set('wind_speed_unit','kn');url.searchParams.set('forecast_days','16');
-    // A request can be stalled by the provider or Safari connectivity. Fail with
-    // an actionable message rather than leaving the flight profile loading forever.
+    progress?.(`Open-Meteo GFS: ${start+1}–${start+batch.length} / ${samples.length}`);
+    const url=makeForecastUrl(batch);
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),30000);
     let response:Response;
@@ -128,22 +167,30 @@ export async function loadWeather(samples:Sample[],fl:number,progress?:(s:string
     const raw=await response.json();
     const items=Array.isArray(raw)?raw:[raw];
     if(items.length!==batch.length)throw Error('Ответ Open-Meteo не соответствует запрошенным точкам');
-    for(let i=0;i<batch.length;i++){
-      const hourly=items[i].hourly as Record<string,unknown[]>;
+    for(let i=0;i<batch.length;i++) {
+      const hourly=items[i]?.hourly as Record<string,unknown[]>|undefined;
       const times=hourly?.time as string[]|undefined;
-      if(!times?.length)throw Error('Open-Meteo не вернул почасовой прогноз');
-      const epoch=(str:string)=>Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(str)?str:str+'Z');
+      if(!hourly || !times?.length)throw Error('Open-Meteo не вернул почасовой прогноз');
       const millis=batch[i].eta.getTime();
       let nearest=0;
-      for(let ti=1;ti<times.length;ti++)if(Math.abs(epoch(times[ti])-millis)<Math.abs(epoch(times[nearest])-millis))nearest=ti;
-      if(Math.abs(epoch(times[nearest])-millis)>90*60000)throw Error('ETA выходит за горизонт прогноза: '+batch[i].label);
+      for(let ti=1;ti<times.length;ti++)if(Math.abs(epochUtc(times[ti])-millis)<Math.abs(epochUtc(times[nearest])-millis))nearest=ti;
+      if(!Number.isFinite(epochUtc(times[nearest]))||Math.abs(epochUtc(times[nearest])-millis)>90*60000)
+        throw Error('ETA выходит за горизонт прогноза GFS: '+batch[i].label);
       const levels={} as Record<number,WeatherCell>;
       for(const p of PRESSURES)levels[p]=levelCell(hourly,nearest,p);
+      if(Object.values(levels).filter(cell=>cell.temp!==null&&cell.windKt!==null&&cell.windDir!==null).length<2)
+        throw Error(`Open-Meteo GFS: недостаточно вертикальных данных для ${batch[i].label}`);
       const flightLevels={} as Record<number,WeatherCell>;
       for(const level of FLIGHT_LEVELS)flightLevels[level]=interpolatePressure(levels,flToHpa(level),level);
-      const flPressure=flLevel(fl),atFl=interpolatePressure(levels,flToHpa(fl),fl);
-      rows.push({sample:batch[i],levels,flightLevels,flPressure,atFl,
-        tropopauseFL:estimateTropopauseFL(levels),alerts:[...atFl.indicators]});
+      const atFl=interpolatePressure(levels,flToHpa(fl),fl);
+      const modelColumn: Array<{heightM:number;tempC:number}>=[];
+      for(const p of TROPOPAUSE_PRESSURES) {
+        const heightM=valid(hourly[`geopotential_height_${p}hPa`]?.[nearest]);
+        const tempC=valid(hourly[`temperature_${p}hPa`]?.[nearest]);
+        if(heightM!==null&&tempC!==null)modelColumn.push({heightM,tempC});
+      }
+      rows.push({sample:batch[i],levels,flightLevels,flPressure:flLevel(fl),atFl,
+        tropopauseFL:estimateModelTropopauseFL(modelColumn),alerts:[...atFl.indicators]});
     }
   }
   return rows;

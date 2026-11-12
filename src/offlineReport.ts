@@ -80,7 +80,7 @@ function weatherDetails(rows:WeatherRow[]|undefined):string {
     const fmt=(v:number|null|undefined)=>v===null||v===undefined?'—':String(v);
     return `<tr><td>${escapeHtml(w.sample.label)}</td><td>${escapeHtml(w.sample.eta.toISOString().slice(0,16).replace('T',' '))}</td><td>FL${level}</td><td>${fmt(c?.windDir)}° / ${fmt(c?.windKt)} kt</td><td>${fmt(c?.temp)}</td><td>${fmt(c?.isaDeviationC)}</td></tr>`;
   })).join('');
-  return `<p class="subdued">Расчётные ETA и ветер/температура по уровням из Windy Point Forecast GFS через API (другая модель карты возможна). Тропопауза отдельно оценена по Open-Meteo. Время вычислено по постоянной TAS без ветровой поправки.</p><table><thead><tr><th>Точка</th><th>ETA UTC</th><th>Уровень</th><th>Ветер</th><th>T °C</th><th>ISA Δ °C</th></tr></thead><tbody>${body}</tbody></table>`;
+  return `<p class="subdued">Расчётные ETA и ветер/температура по уровням Open-Meteo NOAA GFS (модель карты Windy может отличаться). Тропопауза оценена по температуре и модельным геопотенциальным высотам того же GFS. Источник: Open-Meteo (CC BY 4.0). Время вычислено по постоянной TAS без ветровой поправки.</p><table><thead><tr><th>Точка</th><th>ETA UTC</th><th>Уровень</th><th>Ветер</th><th>T °C</th><th>ISA Δ °C</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 /** Create a completely self-contained file for browser use without internet. */
 export function buildOfflineBrief(opt:OfflineBriefOptions):string {

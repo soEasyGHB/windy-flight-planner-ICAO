@@ -73,7 +73,7 @@
         {#if altitudeStatus}<p class="small fr-altitude-notice">{altitudeStatus}</p>{/if}
         {#if overlay === 'radar'}<p class="small">Радар — наблюдения, не высотный прогноз. В отдельных версиях Windy доступ из плагина может быть ограничен.</p>{/if}
         {#if offlineStatus}<p class="info">{offlineStatus}</p>{/if}
-        <p class="small">TAS фиксирована: 450 kt. Эшелон не вводится вручную: отдельно рассчитываются метеорологические рекомендации для чётных и нечётных FL330–390. ETA приблизительный, без ATS и ветровой поправки. Прогноз: Windy Point Forecast GFS при наличии ключа и настройки Vercel.</p>
+        <p class="small">TAS фиксирована: 450 kt. Эшелон не вводится вручную: отдельно рассчитываются метеорологические рекомендации для чётных и нечётных FL330–390. ETA приблизительный, без ATS и ветровой поправки. Таблица: Open-Meteo GFS напрямую, без API-ключа и Vercel. Данные карты Windy могут отличаться.</p>
         <p class="small">Перед открытием штатного Route Planner карта синхронизируется с ETD. Его внутренние параметры не задаются через публичный API; проверь их в Windy.</p>
         </div>
       </details>
@@ -82,7 +82,7 @@
         <summary>ETA по точкам ({timeWaypoints.length})</summary>
         <div class="fr-settings-body">
         <p class="small">Выбери точку, чтобы посмотреть погоду на карте на ожидаемое время её пролёта и заданном эшелоне. Расчёт: расстояние по известной геометрии / TAS, без ветровой поправки.</p>
-        <div class="scrolltable"><table><thead><tr><th>Точка</th><th>ETA UTC</th><th>NM от вылета</th><th>Прогноз Windy</th></tr></thead><tbody>
+        <div class="scrolltable"><table><thead><tr><th>Точка</th><th>ETA UTC</th><th>NM от вылета</th><th>Карта Windy</th></tr></thead><tbody>
           {#each timeWaypoints as wp,i}
             <tr><td>{wp.label}</td><td>{wp.eta.toISOString().slice(11,16)}Z</td><td>{Math.round(wp.distanceNm)}</td>
               <td><button type="button" on:click={() => selectRouteWaypoint(i)}>Показать</button></td></tr>
@@ -154,24 +154,22 @@
                   </select></div>
                 <div><label for="fr-report-map">Показать этот слой</label><button id="fr-report-map" type="button" class="full" on:click={showReportWeatherLayer}>Показать на карте</button></div>
               </div>
-              <p class="small">HTML/PDF сохраняет схему маршрута, приложенный скриншот выбранной карты и модельный прогноз Windy GFS, если он уже загружен. Снимок автоматически не создаётся.</p>
+              <p class="small">HTML/PDF сохраняет схему маршрута, приложенный скриншот карты Windy и прогноз Open-Meteo GFS, если он загружен. Снимок автоматически не создаётся.</p>
         </div>
       </details>
       <details class="fr-settings-group">
-        <summary>Источник данных Windy Point Forecast</summary>
+        <summary>Источник прогноза: Open-Meteo GFS</summary>
         <div class="fr-settings-body">
-          <label for="fr-windy-base-url">Адрес своего проекта Vercel (HTTPS, без /api)</label>
-          <input id="fr-windy-base-url" type="url" bind:value={windyApiBaseUrl} on:change={saveForecastSettings}
-            placeholder="https://ваш-проект.vercel.app" autocomplete="url" />
-          <p class="small">Vercel → Environment Variables → <code>WINDY_POINT_FORECAST_KEY</code> (именно Point Forecast, не Map API). Ключ остаётся на Vercel; здесь сохраняется только адрес сайта. Таблица и ветер — Windy GFS; ECMWF недоступен в Point Forecast API. Бесплатный тестовый ключ Windy выдаёт изменённые данные, непригодные для реального анализа.</p>
-          <p class="small">Тропопауза рассчитывается отдельно по температуре и геопотенциальной высоте Open-Meteo; это приблизительная оценка модели, не опубликованная высота WAFS/SIGWX.</p>
+          <p class="small"><b>Данные автоматически загружаются напрямую из Open-Meteo (NOAA GFS)</b> по координатам и ETA маршрутных точек. Ключ Windy Point Forecast и Vercel не требуются.</p>
+          <p class="small">Для частного некоммерческого использования Open-Meteo предоставляет бесплатный API с лимитами запросов и обязательной атрибуцией CC BY 4.0. Для коммерческого применения нужен подходящий тариф/разрешение. <a href="https://open-meteo.com/en/terms" target="_blank" rel="noopener noreferrer">Условия Open-Meteo</a>.</p>
+          <p class="small">Ветер и температура берутся на изобарических поверхностях GFS. ISA и оптимальные по продольному ветру FL — расчётные величины; оценка тропопаузы использует модельные геопотенциальные высоты. Это не официальный метеобрифинг.</p>
         </div>
       </details>
       <details class="fr-settings-group">
         <summary>Прогноз и таблицы FL300–FL400</summary>
         <div class="fr-settings-body">
         <h3>Прогноз по маршруту и высотам</h3>
-          <p class="small">Метеоразрез и таблица ниже используют Windy Point Forecast (GFS) через Vercel, а карта может показывать другую модель. Тропопауза — отдельная приблизительная оценка Open-Meteo по температуре и модельным высотам, не официальный прогноз WAFS/SIGWX.</p>
+          <p class="small">Метеоразрез и таблица используют Open-Meteo GFS без ключа. Тропопауза вычисляется из того же временного профиля GFS по температуре и геопотенциальной высоте. Модель карты Windy может отличаться; это не официальный прогноз WAFS/SIGWX.</p>
           <div class="btnrow">
             <button type="button" class="primary" disabled={busy} on:click={openWeatherProfile}>{profileState==='loading'?'Загружаю профиль…':'Получить профиль и открыть'}</button>
             <button type="button" disabled={!weather.length} on:click={downloadWeather}>CSV отчёт</button>
@@ -180,7 +178,7 @@
             <p class:warning={profileState==='error'} class="fr-profile-feedback" role="status" aria-live="polite">{profileFeedback}</p>
           {/if}
           {#if weather.length}
-            <h4>Модельный прогноз на FL{weatherFL} (интерполяция из Windy GFS)</h4>
+            <h4>Модельный прогноз на FL{weatherFL} (интерполяция из Open-Meteo GFS)</h4>
             <div class="scrolltable"><table><thead><tr><th>Место</th><th>ETA UTC</th><th>T °C</th><th>Ветер kt</th><th>ISA Δ°C</th><th>Тропопауза≈ FL</th><th>RH %</th><th>Индикаторы*</th></tr></thead><tbody>
               {#each weather as w}
                 <tr><td>{w.sample.label}<span class="muted"> · {Math.round(w.sample.distanceNm)}NM</span></td>
@@ -211,7 +209,7 @@
                 {/each}</tr>
               {/each}
             </tbody></table></div>
-            <p class="small">Таблица: Windy Point Forecast (GFS, требуется отдельный действующий ключ). Значения FL между изобарическими уровнями — интерполяция, не отдельные значения модели. Тропопауза: отдельная оценка по Open-Meteo. Пропуски не заполняются выдуманными значениями.</p>
+            <p class="small">Таблица: Open-Meteo, NOAA GFS, без ключа. Значения FL между изобарическими уровнями интерполированы. Тропопауза приблизительно рассчитана по модельной вертикальной температуре и геопотенциальной высоте. Неофициальные данные; пропуски не замещаются вымышленными значениями.</p>
             <p class="small">* Индикаторы по упрощённым порогам: T от −20 до 0 °C и RH ≥80% (условия возможного обледенения); ветер ≥100 kt; CAPE &gt;1000 J/kg; разница скорости ветра ≥35 kt между соседними уровнями. Это <b>НЕ</b> прогноз фактического обледенения, CAT/турбулентности, гроз по трассе или опасных явлений по ICAO. Для решений используйте SIGMET, значимые карты, AIP, NOTAM и утверждённые источники.</p>
           {/if}
         </div>
@@ -256,7 +254,7 @@
     <header class="fr-profile-head">
       <div>
         <strong>Профиль по маршруту</strong>
-        <span>ETD {etdDate} {etdTime} UTC · TAS {tas} · Windy Point Forecast GFS; тропопауза отдельно</span>
+        <span>ETD {etdDate} {etdTime} UTC · TAS {tas} · Open-Meteo GFS</span>
       </div>
       <button type="button" class="fr-profile-close" on:click={() => profileOpen=false} aria-label="Закрыть профиль">×</button>
     </header>
@@ -390,7 +388,7 @@
     </footer>
     <details class="fr-profile-note fr-profile-note-details">
       <summary>Источники и ограничения прогноза</summary>
-      <p>Прогноз температуры и ветра — Windy Point Forecast GFS (через Vercel), ISA рассчитывается по отклонению от стандартной атмосферы. Тропопауза отдельно оценена из Open-Meteo по температуре и геопотенциальной высоте; показана на отдельной шкале, чтобы не искажать FL330–390. Голубые линии — лучший средний продольный ветер для чётных и нечётных эшелонов среди FL330–390; аэродинамика, расход, вес, ограничения воздушного пространства, направление полёта по правилам эшелонирования и безопасность не учитываются. Геометрия прямолинейная между FIX, без ATS, ETA без учёта ветра. Не для оперативной навигации или выбора разрешённого эшелона.</p>
+      <p>Прогноз температуры и ветра — Open-Meteo GFS напрямую (не данные карты Windy), ISA рассчитывается по отклонению от стандартной атмосферы. Тропопауза оценена по температуре и геопотенциальной высоте того же GFS; показана на отдельной шкале, чтобы не искажать FL330–390. Голубые линии — лучший средний продольный ветер для чётных и нечётных эшелонов среди FL330–390; аэродинамика, расход, вес, ограничения воздушного пространства, направление полёта по правилам эшелонирования и безопасность не учитываются. Геометрия прямолинейная между FIX, без ATS, ETA без учёта ветра. Не для оперативной навигации или выбора разрешённого эшелона.</p>
     </details>
     {:else}
       <div class="fr-profile-empty" role="status" aria-live="polite">
@@ -412,8 +410,7 @@
   import { onMount,onDestroy } from 'svelte';
   import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
-  import {generateWaypointSamples,flLevel,PRESSURES,standardAltitudeM} from './weather';
-  import {loadWindyWeather,normalizeForecastBaseUrl,WINDY_PRESSURES} from './windyWeather';
+  import {generateWaypointSamples,flLevel,PRESSURES,standardAltitudeM,loadWeather} from './weather';
   import {applyWindyAltitude} from './flightAltitude';
   import {buildRouteProfile,yForFlightLevel} from './profileChart';
   import {buildWindyPlannerRequest,makeRouteGpx,routeIssues} from './routePlanner';
@@ -448,7 +445,6 @@
   let labeledCount=0;
   let weather:WeatherRow[]=[];
   let weatherFL=360;
-  let windyApiBaseUrl='';
   let busy=false;
   // Keep the map level internal; meteorological cruise recommendations are automatic.
   let overlay='thunder';
@@ -464,8 +460,6 @@
   }
   function restoreFlightInputs():void {
     try {
-      const api=window.localStorage.getItem('windy-flight-route-analyzer:windy-base-url');
-      if(api && api.length<300)windyApiBaseUrl=api;
       const raw=window.localStorage.getItem(SAVED_FLIGHT_KEY);
       if(!raw)return;
       const saved=JSON.parse(raw) as {routeText?:unknown;etdDate?:unknown;etdTime?:unknown};
@@ -473,12 +467,6 @@
       if(typeof saved.etdDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(saved.etdDate))etdDate=saved.etdDate;
       if(typeof saved.etdTime==='string'&&/^\d{2}:\d{2}$/.test(saved.etdTime))etdTime=saved.etdTime;
     } catch (_err) { /* corrupted/blocked state: use defaults */ }
-  }
-  function saveForecastSettings():void {
-    try {window.localStorage.setItem('windy-flight-route-analyzer:windy-base-url',windyApiBaseUrl.trim());}
-    catch(_err) { /* can be blocked in private mode */ }
-    try {normalizeForecastBaseUrl(windyApiBaseUrl);status='Адрес Windy/Vercel сохранён';}
-    catch(err) {status='Проверь адрес Windy/Vercel: '+String(err);}
   }
   function routeInputChanged(event:Event):void {
     routeText=(event.currentTarget as HTMLTextAreaElement).value;
@@ -899,7 +887,7 @@
       const samples=generateWaypointSamples(currentRoute!.points,date,Number(tas));
       if(samples.length<2)throw Error('Найдено менее двух именованных точек маршрута.');
       profileFeedback=`Получаю прогноз: ${samples.length} именованных точек…`;
-      weather=await loadWindyWeather(samples,Number(fl),windyApiBaseUrl,text=>{
+      weather=await loadWeather(samples,Number(fl),text=>{
         profileFeedback=text;
         status=text;
       });
@@ -913,7 +901,7 @@
         row.alerts=[...(row.atFl?.indicators??[])];
       }
       profileState='ready';
-      profileFeedback=`Windy GFS: ${weather.length} точек. Метеорологические рекомендации чётного/нечётного эшелона рассчитаны. Нажми на FIX, чтобы выбрать время карты.`;
+      profileFeedback=`Open-Meteo GFS: ${weather.length} точек. Метеорологические рекомендации чётного/нечётного эшелона рассчитаны. Нажми на FIX, чтобы выбрать время карты.`;
       status=profileFeedback;
       // Windy time synchronisation is useful but must never hide a loaded profile.
       try {syncWindyTimestamp(date,false);}
@@ -921,17 +909,17 @@
     } catch(err) {
       weather=[];
       profileState='error';
-      profileFeedback='Не удалось получить профиль Windy: '+String(err)+'. Проверь Vercel URL, WINDY_POINT_FORECAST_KEY, тариф и ETA; тестовый ключ нельзя использовать для полётов.';
+      profileFeedback='Не удалось получить профиль Open-Meteo GFS: '+String(err)+'. Проверь подключение к интернету, корректность ETA (не более 16 дней) и попробуй повторить запрос.';
       status=profileFeedback;
       console.warn('Flight weather profile request failed',err);
     } finally {busy=false;}
   }
   function downloadWeather():void {
     if(!weather.length)return;
-    const rows=[['point','lat','lon','nm','eta_utc','fl','temp_c','wind_kt','wind_dir','isa_deviation_c','tropopause_approx_fl'].join(',')];
+    const rows=[['point','lat','lon','nm','eta_utc','fl','temp_c','wind_kt','wind_dir','isa_deviation_c','tropopause_approx_fl','source'].join(',')];
     for(const w of weather) for(const f of cruiseFlightLevels) {
       const c=w.flightLevels[f];
-      rows.push([w.sample.label,w.sample.lat.toFixed(5),w.sample.lon.toFixed(5),w.sample.distanceNm.toFixed(1),w.sample.eta.toISOString(),f,c?.temp??'',c?.windKt??'',c?.windDir??'',c?.isaDeviationC??'',w.tropopauseFL??''].join(','));
+      rows.push([w.sample.label,w.sample.lat.toFixed(5),w.sample.lon.toFixed(5),w.sample.distanceNm.toFixed(1),w.sample.eta.toISOString(),f,c?.temp??'',c?.windKt??'',c?.windDir??'',c?.isaDeviationC??'',w.tropopauseFL??'','Open-Meteo NOAA GFS (CC BY 4.0)'].join(','));
     }
     const a=document.createElement('a'),u=URL.createObjectURL(new Blob(['\uFEFF'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}));
     a.href=u;a.download='flight-weather-FL300-FL400.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);
