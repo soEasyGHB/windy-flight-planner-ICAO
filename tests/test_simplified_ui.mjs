@@ -11,6 +11,7 @@ assert(main.includes('class="fr-etd-stack"'), 'Stacked centered UTC inputs');
 assert(main.includes('id="fr-etd-date" type="date" bind:value={etdDate}'));
 assert(main.includes('id="fr-etd-time" type="time" step="60" bind:value={etdTime}'));
 assert(main.includes('on:change={departureInputChanged}'));
+assert(main.includes('on:input={departureInputChanged} on:change={departureInputChanged}'), 'Capture both date/time events');
 assert(src.includes('margin:0 auto 11px'), 'Center compact UTC input column');
 assert(src.includes('prepareGpxPayload(parsed,{departureUtc,routeText})'), 'GPX must contain departure UTC');
 assert(main.includes('on:click={sharePlannerGpx}>Скачать GPX</button>'),'Share GPX renamed to download');
@@ -19,7 +20,7 @@ assert(!src.includes('function openNativePlanner()'),'Unused planner method remo
 assert(!src.includes("from '@windy/store'"),'Unused Windy store import removed');
 assert.equal((main.match(/<button\b/g)||[]).length,4,'Route/clear, share GPX, disabled URL placeholder');
 assert(main.includes('href={windyPlannerUrl} target="_blank"'), 'User-tested URL must be a regular anchor for iPad support');
-assert(main.includes('on:click={noteWindyPlannerOpen}>Открыть маршрут с UTC в Windy</a>'));
+assert(main.includes('on:click={openWindyPlannerWithCurrentEtd}>Открыть маршрут с UTC в Windy</a>'));
 assert(main.includes('<button type="button" class="fr-force-handoff" disabled>Открыть маршрут с UTC в Windy</button>'), 'No action until route has two confirmed points');
 assert(src.includes('buildWindyPlannerUrl(parsed,departureUtc)'));
 assert(!src.includes("bcast.emit('rqstOpen','rplanner',handoff.params)"), 'Do not call failed internal route handoff');
@@ -49,7 +50,9 @@ assert(!src.includes("store.set('overlay'"),'Do not modify Windy weather overlay
 assert(!src.includes('buildWindyPlannerRequest'),'Legacy route forwarding helper stays removed');
 assert(main.includes('rows="8"'),'Route textarea doubled to 8 rows');
 assert(src.includes('min-height:172px'),'Route textarea doubled in minimum height');
-assert(src.includes('height:28px;min-height:28px;padding:2px 8px'),'Compact date/time controls');
+assert(src.includes('height:40px;min-height:40px;padding:7px 8px'),'Compact date/time controls');
 assert(src.includes('font-size:12px;line-height:14px;margin-bottom:2px'),'Compact date/time labels');
-assert(main.includes('on:click={noteWindyPlannerOpen}>Открыть маршрут с UTC в Windy</a>'),'Working Windy URL integration intact');
+assert(main.includes('on:click={openWindyPlannerWithCurrentEtd}>Открыть маршрут с UTC в Windy</a>'),'Working Windy URL integration intact');
+assert(src.includes('anchor.href=link.url'), 'Rebuild URL on click');
+assert(src.includes("document.getElementById('fr-etd-time')"), 'Read live input value');
 console.log('PASS: compact UTC inputs, taller route field, GPX + working IFR URL, no empty planner button');

@@ -25,6 +25,7 @@ try {
   assert.equal(unexpected.length,0,`Unresolved names:\n${unexpected.join('\n')}`);
   const compiled=readFileSync(output,'utf8');
   const plannerRequests=[];
+  const urlRequests=[];
   const sharedFiles=[];
   const downloadedFiles=[];
   const fake={
@@ -34,14 +35,22 @@ try {
     './pluginConfig':{default:{title:'Flight Route Analyzer'}},
     './navdataConfig':{NAVDATA_GITHUB_REPO:'https://example.invalid'},
     './routeGpx':{
-      departureIsoUtc:(date,time)=>`${date}T${time}:00Z`
+      departureIsoUtc:(date,time)=>{
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^\d{2}:\d{2}$/.test(time))throw Error('Invalid UTC');
+        return `${date}T${time}:00Z`;
+      }
     },
     './windyPlannerUrl':{
-      buildWindyPlannerUrl: (_route,etd)=>({
-        url:'https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-13-00',
-        requestedDepartureUtc:etd,urlTimeUtc:'2026-11-13-00',roundedTime:true,
-        partial:false,pointsSent:2,from:'UUEE',to:'EDDF'
-      })
+      buildWindyPlannerUrl: (_route,etd)=>{
+        urlRequests.push(etd);
+        const bucket=new Date(Math.round(Date.parse(etd)/(3*60*60*1000))*(3*60*60*1000))
+          .toISOString().slice(0,13).replace('T','-');
+        return {
+          url:`https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?${bucket}`,
+          requestedDepartureUtc:etd,urlTimeUtc:bucket,roundedTime:true,
+          partial:false,pointsSent:2,from:'UUEE',to:'EDDF'
+        };
+      }
     },
     './gpxDownload':{
       prepareGpxPayload:(route,options)=>({
@@ -68,9 +77,26 @@ try {
   vm.runInContext('parsed={segments:[[{lat:55.9726,lon:37.4146},{lat:50.0379,lon:8.5622}]]};prepareGpxDownload()',sandbox,{timeout:2000});
   assert.equal(vm.runInContext('windyPlannerUrl',sandbox),
     'https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-13-00');
-  vm.runInContext('noteWindyPlannerOpen()',sandbox,{timeout:2000});
-  assert.equal(plannerRequests.length,0,'URL handoff must not use Windy internal planner events');
-  assert.equal(vm.runInContext('status',sandbox).includes('Ссылка Windy'),true);
+  // Native picker has a newer DOM value than the last change event.
+  const dateField={id:'fr-etd-date',value:'2026-11-16'};
+  const timeField={id:'fr-etd-time',value:'18:20'};
+  sandbox.document={getElementById:id=>id==='fr-etd-date'?dateField:timeField};
+  sandbox.click={currentTarget:{href:'https://example.invalid/stale'},prevented:false,preventDefault(){this.prevented=true;}};
+  vm.runInContext('openWindyPlannerWithCurrentEtd(click)',sandbox,{timeout:2000});
+  assert.equal(sandbox.click.currentTarget.href,
+    'https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-16-18',
+    'Click must use the current DOM UTC and replace any stale URL');
+  assert.equal(sandbox.click.prevented,false);
+  assert.equal(urlRequests.at(-1),'2026-11-16T18:20:00Z');
+  assert.equal(vm.runInContext('etdTime',sandbox),'18:20');
+  assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-16T18:20:00Z</gpx>');
+  assert.equal(plannerRequests.length,0,'Use URL, not failed Windy internal event');
+  timeField.value='invalid-time';
+  sandbox.click.prevented=false;
+  vm.runInContext('openWindyPlannerWithCurrentEtd(click)',sandbox,{timeout:2000});
+  assert.equal(sandbox.click.prevented,true,'Invalid UTC must block stale URL navigation');
+  assert.equal(vm.runInContext('status',sandbox).includes('Не удалось сформировать'),true);
+  timeField.value='18:20';
 
   await vm.runInContext('gpxXml="<gpx/>";gpxDownloadHref="blob:test";gpxFileName="route.gpx";sharePlannerGpx()',sandbox,{timeout:2000});
   assert.equal(sharedFiles.length,1,'iPad should receive native share request');

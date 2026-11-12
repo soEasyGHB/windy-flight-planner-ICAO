@@ -18,17 +18,17 @@
       <div class="fr-etd-stack" role="group" aria-label="Дата и время вылета UTC">
         <div>
           <label for="fr-etd-date">Дата вылета (UTC)</label>
-          <input id="fr-etd-date" type="date" bind:value={etdDate} on:change={departureInputChanged} />
+          <input id="fr-etd-date" type="date" bind:value={etdDate} on:input={departureInputChanged} on:change={departureInputChanged} />
         </div>
         <div>
           <label for="fr-etd-time">Время вылета (UTC)</label>
-          <input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={departureInputChanged} />
+          <input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:input={departureInputChanged} on:change={departureInputChanged} />
         </div>
       </div>
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
         {#if windyPlannerUrl}
-          <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={noteWindyPlannerOpen}>Открыть маршрут с UTC в Windy</a>
+          <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={openWindyPlannerWithCurrentEtd}>Открыть маршрут с UTC в Windy</a>
         {:else}
           <button type="button" class="fr-force-handoff" disabled>Открыть маршрут с UTC в Windy</button>
         {/if}
@@ -150,7 +150,12 @@
       localStorage.setItem(DEPARTURE_KEY,JSON.stringify({etdDate,etdTime}));
     } catch (_err) { /* invalid entry or private mode: do not save */ }
   }
-  function departureInputChanged():void {
+  function departureInputChanged(event?:Event):void {
+    // Read the actual DOM value: an input handler can run before Svelte's
+    // bind:value listener has propagated its update (notably on iPad Safari).
+    const field=event?.currentTarget as HTMLInputElement|undefined;
+    if(field?.id==='fr-etd-date')etdDate=field.value;
+    if(field?.id==='fr-etd-time')etdTime=field.value;
     saveDeparture();
     prepareGpxDownload();
   }
@@ -292,10 +297,33 @@
     const issues=routeIssues(parsed);
     status=`Маршрут: ${parsed.points.length} точек, ${Math.round(parsed.distanceNm)} NM по подтверждённым отрезкам. ${issues.length?`Предупреждений: ${issues.length}.`:'Разрывов не обнаружено.'}`;
   }
-  function noteWindyPlannerOpen():void {
-    // The native IFR planner is opened by the actual href (no undocumented
-    // bcast payload, GPX-upload API or delayed window.open()).
-    status=windyPlannerNote || 'Открываю штатный IFR-планировщик Windy по URL.';
+  function openWindyPlannerWithCurrentEtd(event:MouseEvent):void {
+    // Rebuild the URL synchronously during the actual anchor click. On iPad
+    // the native time picker may not have dispatched "change" yet; never
+    // navigate using a URL cached for the previously selected departure.
+    const anchor=event.currentTarget as HTMLAnchorElement|null;
+    try {
+      const dateField=typeof document==='undefined'?null:document.getElementById('fr-etd-date') as HTMLInputElement|null;
+      const timeField=typeof document==='undefined'?null:document.getElementById('fr-etd-time') as HTMLInputElement|null;
+      const nextDate=dateField?.value??etdDate;
+      const nextTime=timeField?.value??etdTime;
+      const requestedUtc=departureIsoUtc(nextDate,nextTime);
+      if(!parsed)throw Error('Сначала построй маршрут');
+      const link=buildWindyPlannerUrl(parsed,requestedUtc);
+      const changed=nextDate!==etdDate||nextTime!==etdTime;
+      etdDate=nextDate;etdTime=nextTime;
+      if(changed){saveDeparture();prepareGpxDownload();}
+      // Do not replace the anchor with window.open or asynchronous actions:
+      // preserve the iPad's real user gesture and the exact tested URL path.
+      if(anchor)anchor.href=link.url;
+      windyPlannerUrl=link.url;
+      status=`Открываю Windy с UTC ${link.urlTimeUtc.replace(/-(\d{2})$/,' $1:00')}. `+
+        (link.roundedTime?'Точное время сохранено в GPX; URL округлён до 3 часов.':'')+
+        (link.partial?' Передан только подтверждённый участок маршрута.':'');
+    }catch(err){
+      event.preventDefault();
+      status='Не удалось сформировать ссылку с выбранным UTC: '+String(err);
+    }
   }
   function downloadGpxFallback():void {
     if(!gpxDownloadHref){gpxFeedback='GPX пока не готов. Сначала построй маршрут.';return;}
@@ -386,7 +414,7 @@
   .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:7px;max-width:220px;margin:0 auto 11px;}
   .flightplanner .fr-etd-stack > div {width:100%;min-width:0;text-align:center;}
   .flightplanner .fr-etd-stack label {display:block;text-align:center;font-size:12px;line-height:14px;margin-bottom:2px;}
-  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:28px;min-height:28px;padding:2px 8px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:40px;min-height:40px;padding:7px 8px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
   .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button,.flightplanner .fr-export-actions > a {flex:1 1 160px;text-align:center;}
   .flightplanner .fr-force-handoff {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}
