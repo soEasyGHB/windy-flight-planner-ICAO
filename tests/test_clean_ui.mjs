@@ -20,5 +20,5 @@ for(const snippet of ['{status}','{altitudeStatus}','{offlineStatus}','class="di
 for(const h of ['runRoute','clearRoute','openNativeRoutePlanner','downloadPlannerGpx'])assert(main.includes('on:click={'+h+'}'),`Main action missing: ${h}`);
 for(const h of ['saveOfflineHtml','openOfflinePrint','openWeatherProfile'])assert(settings.includes('on:click={'+h+'}'),`Settings action missing: ${h}`);
 for(const b of ['routeText','etdDate','etdTime','overlay'])assert(main.includes('bind:value={'+b+'}'),`Binding missing: ${b}`);
-assert(!main.includes('fr-flight-level') && !main.includes('fr-tas'),'FL/TAS inputs still visible');
+assert(main.includes('fr-flight-level') && !main.includes('fr-tas'),'Flight level should be visible, TAS fixed');
 console.log('PASS: four compact main cards with only route/UTC/weather/GPX and hidden extras');

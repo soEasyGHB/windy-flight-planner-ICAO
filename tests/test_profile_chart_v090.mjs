@@ -26,8 +26,12 @@ assert.equal(profile.tropopauseSegments[0].length,2);
 assert.equal(profile.tropopauseMarkers.length,2);
 assert(profile.tropopauseMarkers.every(p=>p.y>=profile.top && p.y<=profile.bottom));
 const noTopo=buildRouteProfile([sample(0,0,null),sample(1,100,410),sample(2,200,320)],360);
-assert.equal(noTopo.hasTropopause,false,'out-of-range tropopause must not be drawn at FL330/390 edges');
-assert.equal(noTopo.tropopauseSegments.length,0);
+assert.equal(noTopo.hasTropopause,true,'a line crossing the visible FL band should be clipped and shown');
+assert.equal(noTopo.tropopauseSegments.length,1);
+assert(noTopo.tropopauseSegments[0].every(p=>p.y>=noTopo.top && p.y<=noTopo.bottom));
+const onlyAbove=buildRouteProfile([sample(0,0,420),sample(1,100,430)],360);
+assert.equal(onlyAbove.hasTropopause,false,'out-of-range tropopause must not be faked at upper edge');
+assert.match(onlyAbove.tropopauseDescription,/выше FL390/);
 assert.equal(buildRouteProfile([],360).barbs.length,0);
 assert.deepEqual(windBarbGeometry(0).calm,true);
 assert(windBarbGeometry(55).pennants.includes('Z'),'50kt is a pennant');
@@ -38,7 +42,7 @@ assert.notEqual(isaColor(-10),isaColor(10));
 
 const ui=readFileSync('src/plugin.svelte','utf8');
 for(const signature of ['buildRouteProfile(weather,weatherFL)','fr-profile-svg','fr-selected-fl-line',
-  'fr-tropopause-line','fr-profile-legend','fr-barb','fr-waypoint-target','Тропопауза≈'])
+  'fr-tropopause-line','fr-profile-flight-summary','fr-barb','fr-waypoint-target','Тропопауза≈'])
   assert(ui.includes(signature),`New graphical profile UI marker missing: ${signature}`);
 const panel=ui.slice(ui.indexOf('{#if profileOpen && weather.length}'),ui.indexOf('<script lang="ts">'));
 assert(!panel.includes('fr-profile-grid'),'Old table-based profile must be removed');

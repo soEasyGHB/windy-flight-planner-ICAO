@@ -5,16 +5,16 @@
 import type {WeatherRow,WeatherCell} from './weather';
 
 export const PROFILE_LEVELS=[390,380,370,360,350,340,330] as const;
-export const PROFILE_TOP=105;
+export const PROFILE_TOP=166;
 export const PROFILE_ROW_STEP=52;
 export const PROFILE_LEFT=86;
 export const PROFILE_RIGHT=38;
 export const PROFILE_BOTTOM=PROFILE_TOP+6*PROFILE_ROW_STEP;
-export const PROFILE_HEIGHT=493;
+export const PROFILE_HEIGHT=554;
 
 export type GradientStop={offset:number;color:string};
 export type Band={level:number;y:number;stops:GradientStop[]};
-export type Waypoint={index:number;label:string;distanceNm:number;etaUtc:string;x:number;showCode:boolean};
+export type Waypoint={index:number;label:string;distanceNm:number;etaUtc:string;x:number;labelX:number;labelY:number;labelWidth:number};
 export type Barb={x:number;y:number;direction:number;speed:number;shaft:string;feathers:string;pennants:string;calm:boolean};
 export type IsaLabel={x:number;y:number;text:string};
 export type Point2D={x:number;y:number};
@@ -34,7 +34,7 @@ export type ProfileChart={
   levels:readonly number[];bands:Band[];barbs:Barb[];components:ComponentGlyph[];waypointWinds:(AlongTrackWind|null)[];waypoints:Waypoint[];
   ticks:Array<{x:number;distanceNm:number;label:string}>;
   isaLabels:IsaLabel[];tropopauseSegments:Point2D[][];tropopauseMarkers:Point2D[];
-  hasTropopause:boolean;
+  hasTropopause:boolean;tropopauseDescription:string;tropopauseLabel:Point2D|null;
 };
 
 const finite=(n:unknown):n is number=>typeof n==='number'&&Number.isFinite(n);
@@ -179,11 +179,28 @@ export function buildRouteProfile(rows:WeatherRow[],selectedFl=360):ProfileChart
       color:isaColor(r.flightLevels[level]?.isaDeviationC)
     })):[{offset:0,color:'#eef0ef'},{offset:100,color:'#eef0ef'}]
   }));
-  const waypoints=rows.map((r,i)=>({
-    index:i,label:r.sample.label,distanceNm:r.sample.distanceNm,
-    etaUtc:r.sample.eta.toISOString().slice(11,16)+'Z',x:xs[i],
-    showCode:i===0||i===rows.length-1||xs[i]-(xs[i-1]??0)>=64
-  }));
+  // Every fix name is visible. Place compact labels on six staggered rows,
+  // linked to the exact-distance marker even when fixes are closely spaced.
+  const labelLanes=[38,53,68,83,98,113];
+  const lastRight=labelLanes.map(()=>-Infinity);
+  const waypoints=rows.map((r,i)=>{
+    const label=r.sample.label;
+    const labelWidth=clamp(label.length*6.6+15,43,105);
+    const nominalX=clamp(xs[i],labelWidth/2+3,width-labelWidth/2-3);
+    const free=lastRight.findIndex(right=>nominalX-labelWidth/2-right>=5);
+    let lane=free;
+    let labelX=nominalX;
+    if(lane<0){
+      // If all label lanes are busy, put the next label on the least crowded
+      // lane and offset it horizontally. The exact route distance is unchanged.
+      lane=lastRight.indexOf(Math.min(...lastRight));
+      labelX=clamp(Math.max(nominalX,lastRight[lane]+labelWidth/2+5),labelWidth/2+3,width-labelWidth/2-3);
+    }
+    lastRight[lane]=labelX+labelWidth/2;
+    return {index:i,label,distanceNm:r.sample.distanceNm,
+      etaUtc:r.sample.eta.toISOString().slice(11,16)+'Z',x:xs[i],
+      labelX,labelY:labelLanes[lane],labelWidth};
+  });
   const ticks:Array<{x:number;distanceNm:number;label:string}>=[];
   if(totalNm>0){
     const step=totalNm<=1000?200:totalNm<=3200?500:totalNm<=7000?1000:2000;
@@ -229,22 +246,47 @@ export function buildRouteProfile(rows:WeatherRow[],selectedFl=360):ProfileChart
       isaLabels.push({x:xs[ri],y:yForFlightLevel(level)-19,text:`ISA${deviation>=0?'+':''}${deviation}°`});
     }
   }
+  // Preserve only model-derived estimates. Clip a line where a pair of
+  // adjacent estimates actually crosses the visible FL330–390 band, rather
+  // than pretending an out-of-range tropopause is at the chart boundary.
   const tropopauseSegments:Point2D[][]=[];
   const tropopauseMarkers:Point2D[]=[];
-  let current:Point2D[]=[];
+  const estimates=rows.map(r=>r.tropopauseFL).filter(finite);
   for(let i=0;i<rows.length;i++){
     const fl=rows[i].tropopauseFL;
-    if(!finite(fl)||fl<330||fl>390){
-      if(current.length>1)tropopauseSegments.push(current);
-      current=[];continue;
+    if(finite(fl)&&fl>=330&&fl<=390)
+      tropopauseMarkers.push({x:xs[i],y:yForFlightLevel(fl)});
+    if(i===0)continue;
+    const prev=rows[i-1].tropopauseFL;
+    if(!finite(fl)||!finite(prev))continue;
+    const a={x:xs[i-1],y:yForFlightLevel(prev)};
+    const b={x:xs[i],y:yForFlightLevel(fl)};
+    const dy=b.y-a.y;
+    let enter=0,exit=1;
+    if(Math.abs(dy)<1e-9){if(a.y<PROFILE_TOP||a.y>PROFILE_BOTTOM)continue;}
+    else {
+      const t1=(PROFILE_TOP-a.y)/dy,t2=(PROFILE_BOTTOM-a.y)/dy;
+      enter=Math.max(0,Math.min(t1,t2));
+      exit=Math.min(1,Math.max(t1,t2));
     }
-    const point={x:xs[i],y:yForFlightLevel(fl)};
-    current.push(point);
-    tropopauseMarkers.push(point);
+    if(enter>exit||exit-enter<1e-7)continue;
+    const point=(t:number)=>({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
+    tropopauseSegments.push([point(enter),point(exit)]);
   }
-  if(current.length>1)tropopauseSegments.push(current);
+  const hasTropopause=tropopauseMarkers.length>0||tropopauseSegments.length>0;
+  let tropopauseDescription='Тропопауза: нет достаточных данных модели';
+  if(estimates.length){
+    const min=Math.min(...estimates),max=Math.max(...estimates);
+    if(!hasTropopause&&min>390)tropopauseDescription=`Тропопауза выше FL390 (≈ FL${Math.round(min)})`;
+    else if(!hasTropopause&&max<330)tropopauseDescription=`Тропопауза ниже FL330 (≈ FL${Math.round(max)})`;
+    else tropopauseDescription=min===max?`Тропопауза ≈ FL${min}`:`Тропопауза ≈ FL${min}–${max}`;
+  }
+  const midSegment=tropopauseSegments[Math.floor(tropopauseSegments.length/2)];
+  const tropopauseLabel=midSegment
+    ?{x:(midSegment[0].x+midSegment[1].x)/2,y:(midSegment[0].y+midSegment[1].y)/2}
+    :tropopauseMarkers.length?tropopauseMarkers[Math.floor(tropopauseMarkers.length/2)]:null;
   return {width,height:PROFILE_HEIGHT,left:PROFILE_LEFT,right:width-PROFILE_RIGHT,
     top:PROFILE_TOP,bottom:PROFILE_BOTTOM,totalNm,
     selectedFl:selected,selectedY:yForFlightLevel(selected),levels,bands,barbs,components,waypointWinds,waypoints,ticks,isaLabels,
-    tropopauseSegments,tropopauseMarkers,hasTropopause:tropopauseMarkers.length>0};
+    tropopauseSegments,tropopauseMarkers,hasTropopause,tropopauseDescription,tropopauseLabel};
 }
