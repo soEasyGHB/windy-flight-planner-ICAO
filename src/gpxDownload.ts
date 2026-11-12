@@ -1,6 +1,6 @@
 /** Browser-safe GPX delivery. Keep generation independent of Windy API and async data loading. */
 import type {ParsedRoute} from './navdb';
-import {makeRouteGpx} from './routePlanner';
+import {makeRouteGpx} from './routeGpx';
 
 export const GPX_MIME='application/gpx+xml';
 export type GpxPayload={xml:string;filename:string;partial:boolean;pointCount:number;routeCount:number};
@@ -29,4 +29,16 @@ export function createGpxHref(item:GpxPayload, api:Pick<typeof URL,'createObject
 export function makeGpxShareFile(item:GpxPayload):File|null {
   if(typeof File!=='function')return null;
   return new File([item.xml],item.filename,{type:GPX_MIME});
+}
+
+/** Direct download when Web Share is unavailable. Must be called during a user click. */
+export function triggerGpxDownload(href:string,filename:string,doc:Document=document):void {
+  if(!href || !filename)throw Error('GPX URL or filename is missing');
+  const link=doc.createElement('a');
+  link.href=href;
+  link.download=filename;
+  link.rel='noopener';
+  link.style.display='none';
+  doc.body.appendChild(link);
+  try {link.click();} finally {link.remove();}
 }

@@ -1,29 +1,31 @@
-import {readFileSync,existsSync} from 'node:fs';
-const required = [
+import {existsSync,readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+
+const required=[
   'package.json','rollup.config.js','svelte.config.js','tsconfig.json',
-  'src/plugin.svelte','src/pluginConfig.ts','src/navdb.ts','src/navdataConfig.ts',
-  'src/flightAltitude.ts','src/routePlanner.ts','src/plannerPointNames.ts',
-  'src/weather.ts','src/tropopause.ts','src/xplane.ts','src/offlineReport.ts','src/profileChart.ts',
+  'src/plugin.svelte','src/pluginConfig.ts','src/navdataConfig.ts','src/navdb.ts',
+  'src/xplane.ts','src/routeGpx.ts','src/gpxDownload.ts',
   'tools/check-plugin-deps.mjs','tools/check-plugin-exports.mjs',
-  'tools/build_navdata.py','tools/sync_gdrive_navdata.py','tools/verify-release.mjs',
+  'tools/check-plugin-startup.mjs','tools/check-build-config.mjs','tools/verify-release.mjs',
+  'tools/build_navdata.py','tools/sync_gdrive_navdata.py','tools/convert_icao_gpkg.py','tools/clean-legacy.mjs',
   '.github/workflows/publish-plugin.yml','.github/workflows/build-navdata.yml',
   '.github/workflows/sync-gdrive-navdata.yml',
   'public/index.html','public/navdata/.gitkeep','navdata-input/README.md',
-  'tests/test_release_v085.mjs','tests/test_visual_route_v086.mjs','tests/test_navdata_converter.py',
-  'INSTALL-v0.9.5-iPad.md','AUDIT-v0.9.5.md','tests/test_profile_chart_v090.mjs','tests/test_route_wind_v091.mjs','tests/test_component_labels_v092.mjs','tests/test_component_labels_v093.mjs','tests/test_profile_ui_v094.mjs','tests/test_profile_feedback_v095.mjs','tests/test_new_v010.mjs','tests/test_open_meteo_v0102.mjs','INSTALL-v0.10.0.md','AUDIT-v0.10.0.md','INSTALL-v0.10.1.md','AUDIT-v0.10.1.md','INSTALL-v0.10.2.md','AUDIT-v0.10.2.md','tools/check-build-config.mjs','tools/check-plugin-startup.mjs','INSTALL-v0.10.3.md','AUDIT-v0.10.3.md',
-  'src/gpxDownload.ts','tests/test_gpx_export_v0104.mjs','INSTALL-v0.10.4.md','AUDIT-v0.10.4.md',
-  'src/windyDistanceLink.ts','tests/test_windy_distance_link_v0105.mjs','INSTALL-v0.10.5.md','AUDIT-v0.10.5.md',
+  'tests/test.mjs','tests/test_xplane.mjs','tests/test_github_snapshot.mjs',
+  'tests/test_route_gpx.mjs','tests/test_gpx_download.mjs','tests/test_simplified_ui.mjs',
+  'tests/test_navdata_converter.py','INSTALL-v0.11.1.md','AUDIT-v0.11.1.md','README.md'
 ];
-const missing=required.filter(path=>!existsSync(path));
-if(missing.length)throw Error('Missing complete release files: '+missing.join(', '));
-const obsolete=['src/windyWeather.ts','api/windy-forecast.js','tests/test_windy_proxy_v010.mjs'];
-const stale=obsolete.filter(path=>existsSync(path));
-if(stale.length)throw Error('Remove obsolete paid-key Windy API files: '+stale.join(', '));
+for(const filename of required)assert(existsSync(filename),`Required release file missing: ${filename}`);
+const obsolete=[
+  'src/offlineReport.ts','src/weather.ts','src/tropopause.ts','src/flightAltitude.ts',
+  'src/profileChart.ts','src/windyDistanceLink.ts','src/plannerPointNames.ts','src/routePlanner.ts',
+  'src/windyWeather.ts','vercel.json','api/windy-forecast.js'
+];
+for(const filename of obsolete)assert(!existsSync(filename),`Deprecated feature/source must be removed: ${filename}`);
 const pkg=JSON.parse(readFileSync('package.json','utf8'));
 const config=readFileSync('src/pluginConfig.ts','utf8');
-const match=config.match(/version:\s*['"]([^'"]+)['"]/);
-if(pkg.version!==match?.[1])throw Error(`Version mismatch: package ${pkg.version} / plugin ${match?.[1]}`);
-const ui=readFileSync('src/plugin.svelte','utf8');
-for(const module of ['flightAltitude','plannerPointNames','routePlanner','offlineReport','weather','navdb','profileChart','gpxDownload','windyDistanceLink'])
- if(!ui.includes(`'./${module}'`))throw Error(`Missing import ${module} from plugin.svelte`);
-console.log(`PASS: ${required.length} core files found, version ${pkg.version} matches, plugin imports present`);
+assert.equal(config.match(/version:\s*['"]([^'"]+)/)?.[1],pkg.version,'Plugin version mismatch');
+const source=readFileSync('src/plugin.svelte','utf8');
+for(const module of ['navdb','navdataConfig','routeGpx','gpxDownload','pluginConfig'])
+  assert(source.includes(`'./${module}'`),`Plugin must import ${module}`);
+console.log(`PASS: ${required.length} required files, ${obsolete.length} obsolete modules absent; version ${pkg.version}`);
