@@ -44,12 +44,11 @@ try {
     './routeGpx':{
       departureIsoUtc:(date,time)=>`${date}T${time}:00Z`
     },
-    './nativePlannerHandoff':{
-      buildNativePlannerHandoff: (_route,etd)=>({
-        timestampMs:Date.parse(etd),departureUtc:etd,
-        params:{coords:[{lat:55.9726,lon:37.4146},{lat:50.0379,lon:8.5622}],view:'ifr'},
-        fallbackUrl:'https://www.windy.com/distance/55.9726,37.4146;50.0379,8.5622?2026-11-13-00,55.9726,37.4146,5',
-        partial:false,verticesSent:2,from:'UUEE',to:'EDDF'
+    './windyPlannerUrl':{
+      buildWindyPlannerUrl: (_route,etd)=>({
+        url:'https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-13-00',
+        requestedDepartureUtc:etd,urlTimeUtc:'2026-11-13-00',roundedTime:true,
+        partial:false,pointsSent:2,from:'UUEE',to:'EDDF'
       })
     },
     './gpxDownload':{
@@ -78,16 +77,15 @@ try {
   assert.deepEqual(plannerRequests,[['rqstOpen','rplanner']],
     'Planner must open without route or flight parameters');
   assert.equal(fallbackUrls.length,0);
-  // New optional action must forward coordinates to the old internal Windy
-  // rplanner integration, after setting selected forecast timestamp.
-  vm.runInContext('parsed={segments:[[{lat:55.9726,lon:37.4146},{lat:50.0379,lon:8.5622}]]};gpxXml="<gpx/>";sendRouteAndUtcToPlanner()',sandbox,{timeout:2000});
-  assert.deepEqual(plannerRequests[1],['rqstOpen','rplanner',{
-    coords:[{lat:55.9726,lon:37.4146},{lat:50.0379,lon:8.5622}],view:'ifr'
-  }]);
-  assert.equal(timestampChanges.length,2);
-  assert.equal(timestampChanges[1],Date.parse('2026-11-13T01:20:00Z'));
-  assert.equal(vm.runInContext('handoffBackupUrl',sandbox).startsWith('https://www.windy.com/distance/'),true);
-  assert.equal(vm.runInContext('status',sandbox).includes('Внутреннее время старта планировщика необходимо проверить'),true);
+  // The third action is a real anchor to the user-tested Windy URL.
+  // No undocumented rplanner payload or extra timestamp change occurs here.
+  vm.runInContext('parsed={segments:[[{lat:55.9726,lon:37.4146},{lat:50.0379,lon:8.5622}]]};prepareGpxDownload()',sandbox,{timeout:2000});
+  assert.equal(vm.runInContext('windyPlannerUrl',sandbox),
+    'https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-13-00');
+  vm.runInContext('noteWindyPlannerOpen()',sandbox,{timeout:2000});
+  assert.equal(plannerRequests.length,1,'Third action must not use the failed internal Windy handoff');
+  assert.equal(timestampChanges.length,1,'URL handoff must not silently set global Windy time');
+  assert.equal(vm.runInContext('status',sandbox).includes('Ссылка Windy'),true);
 
   await vm.runInContext('gpxXml="<gpx/>";gpxDownloadHref="blob:test";gpxFileName="route.gpx";sharePlannerGpx()',sandbox,{timeout:2000});
   assert.equal(sharedFiles.length,1,'iPad should receive native share request');
@@ -101,7 +99,7 @@ try {
   rejectTimestamp=true;
   vm.runInContext('etdTime="02:20";openNativePlanner()',sandbox,{timeout:2000});
   assert.equal(vm.runInContext('status',sandbox).includes('Windy не принял'),true);
-  assert.equal(plannerRequests.length,3);
+  assert.equal(plannerRequests.length,2);
   rejectTimestamp=false;
   // Fallback when the internal Windy planner event throws.
   fake['@windy/broadcast'].default.emit=()=>{throw new Error('unsupported');};
@@ -114,7 +112,7 @@ try {
   assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-13T01:20:00Z</gpx>',
     'Changing UTC fields should regenerate GPX without a new route build');
   assert.equal(vm.runInContext('gpxDownloadHref',sandbox),'blob:new-dated-gpx');
-  console.log('PASS: Svelte startup, UTC timestamp sync, coordinate handoff, Windy rejection and fallback, GPX share');
+  console.log('PASS: Svelte startup, GPX share, native empty planner and user-tested IFR URL with no internal coordinate handoff');
 }finally{
   rmSync(entry,{force:true});rmSync(temp,{recursive:true,force:true});
 }

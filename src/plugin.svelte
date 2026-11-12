@@ -28,7 +28,11 @@
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
         <button type="button" on:click={openNativePlanner}>Открыть штатный планировщик Windy</button>
-        <button type="button" class="fr-force-handoff" disabled={!gpxXml || !parsed} on:click={sendRouteAndUtcToPlanner}>Передать маршрут и UTC в Windy</button>
+        {#if windyPlannerUrl}
+          <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={noteWindyPlannerOpen}>Открыть маршрут с UTC в Windy</a>
+        {:else}
+          <button type="button" class="fr-force-handoff" disabled>Открыть маршрут с UTC в Windy</button>
+        {/if}
       </div>
     </section>
   </div>
@@ -46,8 +50,8 @@
           {#if showDiagnostics}
             <p class:fr-warning={gpxIsPartial} class="fr-feedback" role="status" aria-live="polite">{gpxFeedback}</p>
             <p class="fr-info" role="status" aria-live="polite">{status}</p>
-            {#if handoffBackupUrl}
-              <p class="fr-small"><a href={handoffBackupUrl} target="_blank" rel="noopener noreferrer">Резервное открытие маршрута в Windy по ссылке</a> (время прогноза округлено до 3 ч; точный ETD остаётся в GPX).</p>
+            {#if windyPlannerNote}
+              <p class:fr-warning={windyPlannerPartial} class="fr-small">{windyPlannerNote}</p>
             {/if}
             {#if parsed}
               <p class="fr-small">Точек: {parsed.points.length}; подтверждённая длина: {Math.round(parsed.distanceNm)} NM; подписей: {labeledCount}.</p>
@@ -102,7 +106,7 @@
   import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {routeIssues,departureIsoUtc} from './routeGpx';
-  import {buildNativePlannerHandoff} from './nativePlannerHandoff';
+  import {buildWindyPlannerUrl} from './windyPlannerUrl';
   import {prepareGpxPayload,createGpxHref,makeGpxShareFile,triggerGpxDownload} from './gpxDownload';
   import type {ParsedRoute} from './navdb';
 
@@ -135,7 +139,9 @@
   let gpxXml='';
   let gpxIsPartial=false;
   let gpxFeedback='Построй маршрут, чтобы подготовить GPX.';
-  let handoffBackupUrl='';
+  let windyPlannerUrl='';
+  let windyPlannerNote='';
+  let windyPlannerPartial=false;
 
   function saveRoute():void {
     try {localStorage.setItem(SAVED_ROUTE_KEY,routeText);} catch (_err) { /* private mode */ }
@@ -185,13 +191,25 @@
     if(gpxDownloadHref.startsWith('blob:')) {
       try {URL.revokeObjectURL(gpxDownloadHref);} catch (_err) { /* unsupported WebView */ }
     }
-    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;handoffBackupUrl='';
+    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';windyPlannerPartial=false;
   }
   function prepareGpxDownload():void {
     clearGpxDownload();
     if(!parsed){gpxFeedback='Сначала построй маршрут.';return;}
     try {
       const departureUtc=departureIsoUtc(etdDate,etdTime);
+      // Prepare the real URL handoff independently from the GPX file. An <a>
+      // preserves the actual user click, which is important on iPad Safari.
+      try {
+        const link=buildWindyPlannerUrl(parsed,departureUtc);
+        windyPlannerUrl=link.url;
+        windyPlannerPartial=link.partial;
+        windyPlannerNote=`Ссылка Windy: ${link.from} → ${link.to}, ${link.pointsSent} точек; время URL ${link.urlTimeUtc.replace(/-(\d{2})$/,' $1:00')} UTC.`+
+          (link.roundedTime?' Выбранные минуты округлены до ближайшего 3-часового интервала; точный ETD сохраняется в GPX.':'')+
+          (link.partial?' Маршрут неполный: передан только самый длинный подтверждённый непрерывный участок.':'');
+      } catch(linkError) {
+        windyPlannerNote='Ссылка Windy недоступна: '+String(linkError);
+      }
       const item=prepareGpxPayload(parsed,{departureUtc,routeText});
       gpxXml=item.xml;
       gpxFileName=item.filename;
@@ -302,36 +320,10 @@
       catch(openErr){status+=' Не удалось открыть резервную ссылку: '+String(openErr);}
     }
   }
-  function sendRouteAndUtcToPlanner():void {
-    if(!parsed || !gpxXml) {
-      status='Сначала построй маршрут и подготовь GPX.';
-      return;
-    }
-    try {
-      const handoff=buildNativePlannerHandoff(parsed,departureIsoUtc(etdDate,etdTime));
-      handoffBackupUrl=handoff.fallbackUrl;
-      // The actual GPX file remains available via "Скачать GPX". Windy does not
-      // expose a documented GPX-file upload call to third-party plugins.
-      // Restore the coordinate handoff used in versions 0.9.x–0.10.x.
-      let timeMessage='';
-      try {
-        store.set('timestamp',handoff.timestampMs);
-        const actual=Number(store.get('timestamp'));
-        timeMessage=Number.isFinite(actual) && Math.abs(actual-handoff.timestampMs)<=30*60*1000
-          ? 'Шкала прогноза Windy установлена на выбранный UTC (или ближайшее время модели).'
-          : 'Windy не подтвердил выбранный UTC на шкале прогноза.';
-      } catch(err) {
-        timeMessage='Windy не смог установить UTC на шкале прогноза: '+String(err);
-      }
-      bcast.emit('rqstOpen','rplanner',handoff.params);
-      status=`Отправлен запрос штатному планировщику: ${handoff.verticesSent} координат (${handoff.from} → ${handoff.to}); ETD ${handoff.departureUtc}. ${timeMessage} `+
-        'Внутреннее время старта планировщика необходимо проверить: Windy может игнорировать UTC шкалы. '+
-        (handoff.partial?'ВНИМАНИЕ: передан только самый длинный подтверждённый участок, не полный маршрут. ':'')+
-        (handoffBackupUrl?'Если Windy не принял маршрут, используй резервную ссылку ниже или импорт GPX.':'Резервная ссылка слишком длинная; при необходимости импортируй GPX вручную.');
-    } catch(err) {
-      status='Не удалось передать маршрут и UTC в Windy: '+String(err)+'. '+
-        (handoffBackupUrl?'Используй резервную ссылку ниже.':'Проверь маршрут и дату вылета.');
-    }
+  function noteWindyPlannerOpen():void {
+    // The native IFR planner is opened by the actual href (no undocumented
+    // bcast payload, GPX-upload API or delayed window.open()).
+    status=windyPlannerNote || 'Открываю штатный IFR-планировщик Windy по URL.';
   }
   function downloadGpxFallback():void {
     if(!gpxDownloadHref){gpxFeedback='GPX пока не готов. Сначала построй маршрут.';return;}
@@ -424,8 +416,8 @@
   .flightplanner .fr-etd-stack label {display:block;text-align:center;}
   .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;padding:8px 10px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:14px;color-scheme:dark;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
-  .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button {flex:1 1 160px;text-align:center;}
-  .flightplanner .fr-force-handoff {background:#27648c;color:#fff;border:1px solid #1c567c;font-weight:700;}
+  .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button,.flightplanner .fr-export-actions > a {flex:1 1 160px;text-align:center;}
+  .flightplanner .fr-force-handoff {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}
   .flightplanner .fr-feedback {font-size:12px;color:#e7f0f8;margin:11px 0 0;line-height:1.5;}
   .flightplanner .fr-feedback.fr-warning {color:#ffe0ae;}
   .flightplanner .fr-settings {border:1px solid #b7c0c7;border-radius:12px;margin:12px 0;overflow:hidden;background:#f7f9fb;}
