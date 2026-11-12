@@ -10,7 +10,7 @@ const required = [
   '.github/workflows/sync-gdrive-navdata.yml',
   'public/index.html','public/navdata/.gitkeep','navdata-input/README.md',
   'tests/test_release_v085.mjs','tests/test_visual_route_v086.mjs','tests/test_navdata_converter.py',
-  'INSTALL-v0.9.5-iPad.md','AUDIT-v0.9.5.md','tests/test_profile_chart_v090.mjs','tests/test_route_wind_v091.mjs','tests/test_component_labels_v092.mjs','tests/test_component_labels_v093.mjs','tests/test_profile_ui_v094.mjs','tests/test_profile_feedback_v095.mjs','tests/test_new_v010.mjs','tests/test_open_meteo_v0102.mjs','INSTALL-v0.10.0.md','AUDIT-v0.10.0.md','INSTALL-v0.10.1.md','AUDIT-v0.10.1.md','INSTALL-v0.10.2.md','AUDIT-v0.10.2.md','tools/check-build-config.mjs',
+  'INSTALL-v0.9.5-iPad.md','AUDIT-v0.9.5.md','tests/test_profile_chart_v090.mjs','tests/test_route_wind_v091.mjs','tests/test_component_labels_v092.mjs','tests/test_component_labels_v093.mjs','tests/test_profile_ui_v094.mjs','tests/test_profile_feedback_v095.mjs','tests/test_new_v010.mjs','tests/test_open_meteo_v0102.mjs','INSTALL-v0.10.0.md','AUDIT-v0.10.0.md','INSTALL-v0.10.1.md','AUDIT-v0.10.1.md','INSTALL-v0.10.2.md','AUDIT-v0.10.2.md','tools/check-build-config.mjs','tools/check-plugin-startup.mjs','INSTALL-v0.10.3.md','AUDIT-v0.10.3.md',
 ];
 const missing=required.filter(path=>!existsSync(path));
 if(missing.length)throw Error('Missing complete release files: '+missing.join(', '));

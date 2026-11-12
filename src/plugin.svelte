@@ -494,10 +494,11 @@
   let timeWaypoints:Sample[]=[];
 
   const cruiseFlightLevels=[300,310,320,330,340,350,360,370,380,390,400];
+  let profileViz:ReturnType<typeof buildRouteProfile>;
   $: profileViz=buildRouteProfile(weather,weatherFL);
   const profilePressureLevels=[500,400,300,200,150];
   let pointTotal=0,loadedSources=0,airways=0;
-  const pressuresDescending=[...WINDY_PRESSURES].reverse();
+  const pressuresDescending=[...PRESSURES].reverse();
   const clearMap=()=>{
     // Broken/unavailable map layers must not stop the plugin panel from opening.
     for(const layer of [...lines, ...markers]) {
@@ -929,13 +930,15 @@
     catch(err) { console.error('Route rendering failed',err);status='Ошибка карты: '+String(err); }
     // Each opening starts on the thunderstorm layer (regardless of Windy's prior state).
     overlay='thunder';
-    setWeatherLayer();
+    // Windy may reject a layer or model during client updates. Never let this
+    // secondary map synchronization prevent the plugin pane from opening.
+    try { setWeatherLayer(); }
+    catch(err) { console.warn('Weather layer initialization failed',err);status='Плагин открыт, но слой карты не установлен: '+String(err); }
   };
   onMount(()=>{
     restoreFlightInputs();
-    loadDemo();pointTotal=totalPoints();
-    try { runRoute();setWeatherLayer(); }
-    catch(err) { console.error('Initial map rendering failed',err);status='Не удалось нарисовать маршрут: '+String(err); }
+    try { loadDemo();pointTotal=totalPoints();runRoute();setWeatherLayer(); }
+    catch(err) { console.error('Initial data/map setup failed',err);status='Плагин открыт, но начальная настройка карты не завершена: '+String(err); }
     // On opening Windy, use the last published GitHub snapshot automatically.
     // Failures are visible and never silently replaced with an alleged full AIRAC database.
     (async()=>{await updateHosted();await reloadSources();})();

@@ -18,4 +18,6 @@ assert(imports.some(v=>v==='./weather'),'main component must import key-free wea
 assert(entry.includes('loadWeather(samples,Number(fl)'), 'forecast must use direct Open-Meteo client');
 assert(!/WINDY_POINT_FORECAST_KEY|windyApiBaseUrl|saveForecastSettings/.test(entry),'legacy Windy Point Forecast key/UI must not remain');
 assert(imports.some(v=>v==='./profileChart'),'main component must import profile computation');
+assert(pkg.scripts.test.includes('npm run check:startup'), 'unit test suite must execute Svelte startup smoke test');
+assert(pkg.scripts['check:startup']?.includes('check-plugin-startup.mjs'), 'startup smoke test entrypoint missing');
 console.log(`PASS: Rollup resolves extensionless TypeScript imports; Open-Meteo is direct; dist/package.json is copied; actual build and release gate enabled (${imports.length} local TS imports)`);
