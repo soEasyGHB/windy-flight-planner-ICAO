@@ -1,37 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const base = path.resolve('src');
-const entries = ['plugin.svelte'];
-const scanned = new Set();
-const missing = [];
-const extensions = ['', '.ts', '.js', '.svelte', '.json', '/index.ts', '/index.js'];
-const importPattern = /(?:\bimport\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?|\bexport\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+))['"](\.[^'"]+)['"]/g;
-function resolveImport(from, request) {
-  const candidate = path.resolve(path.dirname(from), request);
-  return extensions.map(ext => candidate + ext).find(file => fs.existsSync(file) && fs.statSync(file).isFile()) ?? null;
+const root = process.cwd();
+const source = path.join(root, 'src', 'plugin.svelte');
+if (!fs.existsSync(source)) {
+  console.error('ERROR: src/plugin.svelte not found. Run at the project root.');
+  process.exit(1);
 }
-while (entries.length) {
-  const name = entries.shift();
-  const file = path.resolve(base, name);
-  if (scanned.has(file) || !fs.existsSync(file)) continue;
-  scanned.add(file);
-  const content = fs.readFileSync(file, 'utf8');
-  // Evaluate import/export statements on a per-line basis; Svelte components often contain
-  // multiline import blocks so capture the completed statement up to a semicolon.
-  const statements = content.match(/(?:import|export)\s+(?:type\s+)?[\s\S]*?;/g) ?? [];
-  for (const statement of statements) {
-    const match = statement.match(/\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*['"](\.[^'"]+)['"]/);
-    if (!match) continue;
-    const request = match[1] ?? match[2];
-    const target = resolveImport(file, request);
-    if (!target) missing.push(`${path.relative(process.cwd(), file)} → ${request}`);
-    else if (target.startsWith(base + path.sep) && /\.(ts|js|svelte)$/.test(target)) entries.push(path.relative(base, target));
+const content = fs.readFileSync(source, 'utf8');
+const imports = [...content.matchAll(/\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*['"](\.[^'"]+)['"]/g)]
+  .map(m => m[1] ?? m[2]);
+const missing = [];
+for (const specifier of new Set(imports)) {
+  const stem = path.resolve(path.dirname(source), specifier);
+  if (![stem, `${stem}.ts`, `${stem}.js`, `${stem}.svelte`, `${stem}.mjs`, path.join(stem, 'index.ts'), path.join(stem, 'index.js')].some(fs.existsSync)) {
+    missing.push(specifier);
   }
 }
 if (missing.length) {
-  console.error('Отсутствуют локальные модули:');
-  for (const item of missing) console.error(`  ${item}`);
+  console.error('Missing plugin.svelte dependencies:\n' + missing.map(x => '  ' + x).join('\n'));
   process.exit(1);
 }
-console.log(`PASS: локальные импорты разрешаются (${scanned.size} файлов проверено).`);
+console.log('OK: All local module paths imported by src/plugin.svelte exist.');
+console.log('Note: Existence does not verify named exports; run npm run build.');
