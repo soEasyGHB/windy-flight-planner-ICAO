@@ -226,56 +226,138 @@
   </details>
 </section>
 {#if profileOpen && weather.length}
-  <aside class="fr-profile-panel" aria-label="Метеоразрез маршрута">
-    <div class="fr-profile-head">
-      <div><strong>Профиль по маршруту</strong><span>ETD {etdDate} {etdTime} UTC · TAS {tas} kt · FL{weatherFL}</span></div>
-      <div class="fr-profile-tools"><label for="fr-metric">Высотный разрез</label>
-        <select id="fr-metric" bind:value={profileMetric}>
-          <option value="all">Все: ветер, T, ISA</option><option value="wind">Ветер</option><option value="isa">ISA deviation</option><option value="temp">Температура</option>
-        </select>
-        <button type="button" on:click={() => profileOpen=false} aria-label="Закрыть метеоразрез">✕</button>
+  <aside class="fr-profile-panel" aria-label="Графический вертикальный метеопрофиль маршрута">
+    <header class="fr-profile-head">
+      <div>
+        <strong>Профиль по маршруту</strong>
+        <span>ETD {etdDate} {etdTime} UTC · TAS {tas} · FL{weatherFL} · Open-Meteo</span>
       </div>
+      <button type="button" class="fr-profile-close" on:click={() => profileOpen=false} aria-label="Закрыть профиль">×</button>
+    </header>
+    <div class="fr-profile-selected-data">
+      <strong>{weather[activeProfileIndex]?.sample.label ?? '—'}</strong>
+      <span>FL{weatherFL}</span>
+      {#if profileViz.waypointWinds[activeProfileIndex]}
+        <span class={profileViz.waypointWinds[activeProfileIndex]?.kind==='tail'?'fr-wind-tail-label':profileViz.waypointWinds[activeProfileIndex]?.kind==='head'?'fr-wind-head-label':'fr-wind-neutral-label'}>
+          {#if profileViz.waypointWinds[activeProfileIndex]?.kind==='tail'}
+            → Попутная {profileViz.waypointWinds[activeProfileIndex]?.componentKt}
+          {:else if profileViz.waypointWinds[activeProfileIndex]?.kind==='head'}
+            ← Встречная {profileViz.waypointWinds[activeProfileIndex]?.componentKt}
+          {:else}
+            <span class="fr-wind-zero-dash" title="Чисто боковой ветер: продольная составляющая отсутствует">—</span>
+          {/if}
+        </span>
+        <span>Курс {Math.round(profileViz.waypointWinds[activeProfileIndex]?.courseDeg ?? 0)}°T · ветер {weather[activeProfileIndex]?.atFl?.windDir ?? '—'}° / {weather[activeProfileIndex]?.atFl?.windKt ?? '—'}</span>
+      {:else}
+        <span class="fr-wind-zero-dash" title="Нет данных о продольной составляющей ветра">—</span>
+      {/if}
+      <span>T: {weather[activeProfileIndex]?.atFl?.temp ?? '—'}°C</span>
+      <span>ISA Δ: {weather[activeProfileIndex]?.atFl?.isaDeviationC == null ? '—' : `${weather[activeProfileIndex].atFl.isaDeviationC > 0 ? '+' : ''}${weather[activeProfileIndex].atFl.isaDeviationC}`}°C</span>
+      <span>Тропопауза≈ {weather[activeProfileIndex]?.tropopauseFL == null ? 'н/д' : `FL${weather[activeProfileIndex].tropopauseFL}`}</span>
     </div>
-    <div class="fr-profile-scroll">
-      <div class="fr-profile-grid" style={`grid-template-columns: 86px repeat(${weather.length}, minmax(105px, 1fr))`}>
-        <div class="fr-profile-heading">ETA / NM</div>
-        {#each weather as w,i}
-          <button type="button" class={i===activeProfileIndex ? 'fr-active' : ''} on:click={() => selectProfilePoint(i)} title="Переключить время карты Windy на ETA точки">
-            <b>{w.sample.label}</b><small>{w.sample.eta.toISOString().slice(11,16)}Z · {Math.round(w.sample.distanceNm)}NM</small>
-          </button>
-        {/each}
-        <div class="fr-profile-heading">Ветер FL{weatherFL}</div>
-        {#each weather as w}
-          <div class="fr-profile-value">{w.atFl?.windDir ?? '—'}° / <b>{w.atFl?.windKt ?? '—'} kt</b></div>
-        {/each}
-        <div class="fr-profile-heading">ISA Δ°C</div>
-        {#each weather as w}
-          <div class="fr-profile-value fr-isa">{w.atFl?.isaDeviationC == null ? '—' : `${w.atFl.isaDeviationC > 0 ? '+' : ''}${w.atFl.isaDeviationC}°C`}</div>
-        {/each}
-        <div class="fr-profile-heading">Тропопауза≈</div>
-        {#each weather as w}
-          <div class="fr-profile-value">{w.tropopauseFL == null ? 'н/д' : `FL${w.tropopauseFL}`}</div>
-        {/each}
-        {#each cruiseFlightLevels as level}
-          <div class="fr-profile-heading">FL{level}</div>
-          {#each weather as w}
-            <div class="fr-profile-value" title={`FL${level} · ${w.sample.label} · ${w.sample.eta.toISOString().slice(11,16)} UTC`}>
-              {#if profileMetric==='all'}
-                <b>{w.flightLevels[level]?.windDir ?? '—'}° / {w.flightLevels[level]?.windKt ?? '—'} kt</b>
-                <small>T {w.flightLevels[level]?.temp ?? '—'}°C · ISA {w.flightLevels[level]?.isaDeviationC ?? '—'}°C</small>
-              {:else if profileMetric==='wind'}
-                <b>{w.flightLevels[level]?.windKt ?? '—'} kt</b><small>{w.flightLevels[level]?.windDir ?? '—'}°</small>
-              {:else if profileMetric==='isa'}
-                <b>{w.flightLevels[level]?.isaDeviationC ?? '—'} °C</b>
-              {:else}
-                <b>{w.flightLevels[level]?.temp ?? '—'} °C</b>
-              {/if}
-            </div>
+    <div class="fr-profile-body">
+      <div class="fr-profile-sidebar">
+        <strong class="fr-profile-distance">{Math.round(profileViz.totalNm).toLocaleString('ru-RU')} NM</strong>
+        <div><span>Скорость</span><b>{tas}</b></div>
+        <div><span>ETD UTC</span><b>{etdDate}</b><b>{etdTime}</b></div>
+        <div><span>Эшелон</span><b>FL{weatherFL}</b></div>
+        <div><span>Уровни профиля</span><b>FL330–390</b></div>
+      </div>
+      <div class="fr-profile-scroll" aria-label="Профиль ISA, ветра и тропопаузы — прокручивается горизонтально">
+        <svg class="fr-profile-svg" xmlns="http://www.w3.org/2000/svg"
+          width={profileViz.width} height={profileViz.height} viewBox={`0 0 ${profileViz.width} ${profileViz.height}`}
+          role="img" aria-label={`Метеопрофиль FL330–390; выбран FL${weatherFL}; расстояние ${Math.round(profileViz.totalNm)} NM`}>
+          <defs>
+            {#each profileViz.bands as band (band.level)}
+              <linearGradient id={`fr-isa-gradient-${band.level}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                {#each band.stops as stop, i (i)}
+                  <stop offset={`${stop.offset}%`} stop-color={stop.color}/>
+                {/each}
+              </linearGradient>
+            {/each}
+          </defs>
+          <rect x="0" y="0" width={profileViz.width} height={profileViz.height} fill="#f3f6f8"/>
+          <rect x={profileViz.left} y={profileViz.top-26}
+            width={profileViz.right-profileViz.left}
+            height={profileViz.bottom-profileViz.top+52} fill="#f7f6f3"/>
+          {#each profileViz.bands as band (band.level)}
+            <rect x={profileViz.left} y={band.y-26}
+              width={profileViz.right-profileViz.left} height="52"
+              fill={`url(#fr-isa-gradient-${band.level})`} opacity="0.93"/>
           {/each}
-        {/each}
+          {#each profileViz.levels as level (level)}
+            <line class="fr-grid-horizontal" x1={profileViz.left} x2={profileViz.right}
+              y1={yForFlightLevel(level)} y2={yForFlightLevel(level)}/>
+            {#if level===weatherFL}
+              <rect x="11" y={yForFlightLevel(level)-14} width="62" height="28" rx="14" fill="#2073d2"/>
+              <text class="fr-selected-level-label" x="42" y={yForFlightLevel(level)+5} text-anchor="middle">FL{level}</text>
+            {:else}
+              <text class="fr-axis-level" x="74" y={yForFlightLevel(level)+5} text-anchor="end">FL{level}</text>
+            {/if}
+          {/each}
+          <line class="fr-profile-top-axis" x1={profileViz.left} x2={profileViz.right} y1="78" y2="78"/>
+          {#each profileViz.ticks as tick (tick.distanceNm)}
+            <line class="fr-axis-tick" x1={tick.x} x2={tick.x} y1="76" y2={profileViz.bottom+26}/>
+            <text class="fr-distance-tick" x={tick.x} y="72" text-anchor="middle">{tick.label}</text>
+          {/each}
+          {#each profileViz.waypoints as waypoint, i (i)}
+            <line class:fr-waypoint-active={i===activeProfileIndex} class="fr-waypoint-line"
+              x1={waypoint.x} x2={waypoint.x} y1="42" y2={profileViz.bottom+26}/>
+          {/each}
+          <line class="fr-selected-fl-line" x1={profileViz.left} x2={profileViz.right}
+            y1={profileViz.selectedY} y2={profileViz.selectedY}/>
+          {#each profileViz.components as component, i (i)}
+            <g class={component.kind==='tail'?'fr-component-tail':'fr-component-head'}
+              transform={`translate(${component.x},${component.y})`}>
+              <title>FL{component.level} · курс {Math.round(component.courseDeg)}° истинный · ветер ОТ {Math.round(component.windFromDeg)}° / {Math.round(component.windKt)} · {component.kind==='tail'?'попутная':'встречная'} {component.componentKt} · боковая {component.crosswindKt}</title>
+              {#if component.kind==='tail'}
+                <path class="fr-component-arrow" d="M-17 -9 H13 M7 -15 L13 -9 L7 -3"/>
+              {:else}
+                <path class="fr-component-arrow" d="M17 -9 H-13 M-7 -15 L-13 -9 L-7 -3"/>
+              {/if}
+              <text class="fr-component-amount" x="0" y="11" text-anchor="middle">{component.componentKt}</text>
+            </g>
+          {/each}
+          {#each profileViz.isaLabels as item, i (i)}
+            <text class="fr-isa-annotation" x={item.x} y={item.y} text-anchor="middle">{item.text}</text>
+          {/each}
+          {#each profileViz.tropopauseSegments as segment, i (i)}
+            <polyline class="fr-tropopause-line" points={segment.map(m=>`${m.x},${m.y}`).join(' ')}/>
+          {/each}
+          {#each profileViz.tropopauseMarkers as marker, i (i)}
+            <circle class="fr-tropopause-dot" cx={marker.x} cy={marker.y} r="2.8"/>
+          {/each}
+          {#each profileViz.waypoints as waypoint, i (i)}
+            <circle class="fr-selected-fl-dot" cx={waypoint.x} cy={profileViz.selectedY} r="3.2"/>
+            <g class="fr-waypoint-target" role="button" tabindex="0"
+              aria-label={`Точка ${waypoint.label}, ETA ${waypoint.etaUtc}. Показать время на карте`}
+              on:click={() => selectProfilePoint(i)}
+              on:keydown={(e) => { if(e.key==='Enter'||e.key===' ') { e.preventDefault();selectProfilePoint(i); } }}>
+              <title>{waypoint.label} · {waypoint.etaUtc} · {Math.round(waypoint.distanceNm)} NM · FL{weatherFL}: {profileViz.waypointWinds[i]?.kind==='tail'?'попутная':profileViz.waypointWinds[i]?.kind==='head'?'встречная':'продольная'} {profileViz.waypointWinds[i]?.componentKt || '—'}, ветер ОТ {weather[i]?.atFl?.windDir ?? '—'}° / {weather[i]?.atFl?.windKt ?? '—'}, T {weather[i]?.atFl?.temp ?? '—'}°C, ISA {weather[i]?.atFl?.isaDeviationC ?? '—'}°C</title>
+              <circle class:fr-waypoint-circle-active={i===activeProfileIndex}
+                class="fr-waypoint-circle" cx={waypoint.x} cy="23" r="11"/>
+              <text class="fr-waypoint-number" x={waypoint.x} y="27" text-anchor="middle">{i+1}</text>
+              {#if waypoint.showCode}
+                <text class="fr-waypoint-code" x={waypoint.x} y="51" text-anchor="middle">{waypoint.label}</text>
+              {/if}
+            </g>
+          {/each}
+          <text class="fr-route-bottom-label" x={profileViz.left} y={profileViz.bottom+48}>Точки OFP · расчёт по прямым между FIX · расстояния и ETA приблизительные</text>
+        </svg>
       </div>
     </div>
-    <details class="fr-profile-note fr-profile-note-details"><summary>Ограничения и источники прогноза</summary><p>Точки расчётные, время UTC · нажми на точку для смены времени Windy. Профиль Open-Meteo, а не встроенный Route Planner Windy. Тропопауза — приблизительная диагностическая оценка, не официальный SIGWX.</p></details>
+    <footer class="fr-profile-legend">
+      <span><i class="fr-legend-line"></i> Выбранный FL{weatherFL}</span>
+      <span><i class="fr-legend-tropo"></i> Тропопауза≈ {profileViz.hasTropopause ? '(оценка)' : '(нет данных в FL330–390)'}</span>
+      <span><i class="fr-legend-color"></i> ISA Δ°C (холоднее — голубой, теплее — красный)</span>
+      <span><i class="fr-legend-tail">→</i> Попутная составляющая</span>
+      <span><i class="fr-legend-head">←</i> Встречная составляющая</span>
+      <span><i class="fr-legend-cross">—</i> Чисто боковой / нет данных: без стрелки</span>
+    </footer>
+    <details class="fr-profile-note fr-profile-note-details">
+      <summary>Источники и ограничения прогноза</summary>
+      <p>Продольная составляющая рассчитана из метеорологического направления ветра ОТ и истинного путевого угла прямого участка между соседними FIX: зелёная стрелка направо — попутная, красная налево — встречная, чисто боковой ветер и отсутствие данных не отображаются на графике. Полная скорость и направление ветра доступны при наведении. Данные — Open-Meteo, не штатный профиль Windy. Геометрия маршрута упрощена, без ATS; IAS/GS и ETA не пересчитываются по ветру. Тропопауза — приблизительная оценка. Не для оперативной навигации.</p>
+    </details>
   </aside>
 {/if}
 <script lang="ts">
@@ -289,6 +371,7 @@
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {generateWaypointSamples,loadWeather,flLevel,PRESSURES,standardAltitudeM} from './weather';
   import {applyWindyAltitude} from './flightAltitude';
+  import {buildRouteProfile,yForFlightLevel} from './profileChart';
   import {buildWindyPlannerRequest,makeRouteGpx,routeIssues} from './routePlanner';
   import {installPlannerPointNames,clearPlannerPointNames} from './plannerPointNames';
   import {buildOfflineBrief} from './offlineReport';
@@ -353,7 +436,6 @@
   let etdTime=initialETD.slice(11,16);
   let profileOpen=false;
   let activeProfileIndex=0;
-  let profileMetric:'all'|'wind'|'isa'|'temp'='all';
   let offlineOverlay:'thunder'|'turbulence'='thunder';
   let offlineImageUrl='';
   let offlineImageName='';
@@ -364,6 +446,7 @@
   let timeWaypoints:Sample[]=[];
 
   const cruiseFlightLevels=[300,310,320,330,340,350,360,370,380,390,400];
+  $: profileViz=buildRouteProfile(weather,weatherFL);
   const profilePressureLevels=[500,400,300,250,200,150,100];
   let pointTotal=0,loadedSources=0,airways=0;
   const pressuresDescending=[...PRESSURES].reverse();
@@ -793,26 +876,86 @@
   .flightplanner .twofields {display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
   .flightplanner .flightinputs {display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:8px;align-items:end;}
   .flightplanner .flightinputs input {min-width:0; width:100%; color-scheme:dark;}
-  .fr-profile-panel {position:fixed;z-index:8000;bottom:75px;left:0;right:0;background:#1c2633;border-top:2px solid #d28e46;box-shadow:0 -7px 22px rgba(0,0,0,.44);color:#f5f7fa;padding:9px 10px 7px;font:12px/1.35 system-ui, sans-serif;max-height:42vh;overflow:hidden;}
-  .fr-profile-head {display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 8px;}
-  .fr-profile-head strong {font-size:14px;display:block;}
-  .fr-profile-head span {font-size:11px;color:#cbd4df;display:block;margin-top:3px;}
-  .fr-profile-head button {background:#364454;color:#fff;border:1px solid #6a7b8e;border-radius:5px;padding:7px 12px;cursor:pointer;}
-  .fr-profile-tools {display:flex;gap:8px;align-items:center;}
-  .fr-profile-tools label {font-size:11px;color:#d3dce6;}
-  .fr-profile-tools select {background:#344457;color:#fff;border:1px solid #68788b;border-radius:5px;font-size:12px;padding:6px;}
-  .fr-profile-grid small {display:block;font-size:10px;opacity:.8;}
-  .fr-profile-scroll {overflow:auto;max-height:28vh;}
-  .fr-profile-grid {display:grid;gap:1px;background:#43556b;min-width:max-content;}
-  .fr-profile-grid>div,.fr-profile-grid>button {background:#253446;border:0;border-radius:0;text-align:center;color:#eef4fa;padding:7px 4px;min-height:27px;font:11px/1.35 system-ui,sans-serif;}
-  .fr-profile-grid .fr-profile-heading {position:sticky;left:0;z-index:1;display:flex;align-items:center;justify-content:center;background:#16293c;color:#e4bb86;font-weight:700;width:86px;}
-  .fr-profile-grid button {cursor:pointer;background:#344b64;}
-  .fr-profile-grid button.fr-active {background:#1665ac;outline:2px solid #84cdff;outline-offset:-2px;}
-  .fr-profile-grid button b,.fr-profile-grid button small {display:block;white-space:nowrap;}
-  .fr-profile-grid button small {font-size:10px;opacity:.84;}
-  .fr-profile-grid .fr-isa {color:#ffd09b;}
-  .fr-profile-note {font-size:10px;color:#b7c8d9;margin:7px 0 0;}
-  @media(max-width:520px) {.flightplanner .flightinputs {grid-template-columns:1fr 1fr;} .flightplanner .flightinputs>div:last-child{grid-column:span 2;} .fr-profile-panel {bottom:55px;max-height:50vh;} }
+  .fr-profile-panel {position:fixed;z-index:8000;bottom:60px;left:0;right:0;
+    padding:0;background:#eef2f4;color:#152334;border-top:3px solid #1876d2;
+    box-shadow:0 -8px 28px rgba(0,0,0,.48);font:12px/1.35 system-ui,sans-serif;max-height:76vh;overflow:hidden;}
+  .fr-profile-head {display:flex;justify-content:space-between;align-items:center;gap:12px;
+    color:#ecf4fc;background:#1b2838;padding:10px 16px;}
+  .fr-profile-head strong {display:block;font-size:15px;}
+  .fr-profile-head span {display:block;margin-top:3px;font-size:11px;color:#a9bed2;}
+  .fr-profile-close {background:#35495d;color:#fff;border:1px solid #6a7b8e;
+    border-radius:5px;padding:5px 11px;cursor:pointer;font-size:16px;}
+  .fr-profile-selected-data {display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+    padding:7px 16px;color:#263b4d;background:#dcebf7;border-bottom:1px solid #bdd6e9;font-size:11px;}
+  .fr-profile-selected-data strong {color:#125fa7;font-size:12px;}
+  .fr-profile-body {display:flex;min-height:0;background:#f1f4f6;}
+  .fr-profile-sidebar {flex:0 0 142px;background:linear-gradient(180deg,#e8edf1,#eef2f4);
+    padding:14px 12px;display:flex;flex-direction:column;gap:17px;z-index:2;
+    box-shadow:2px 0 4px rgba(31,49,67,.14);}
+  .fr-profile-distance {font-size:21px;color:#263343;white-space:nowrap;}
+  .fr-profile-sidebar div {display:flex;flex-direction:column;gap:1px;}
+  .fr-profile-sidebar span {font-size:10px;color:#788695;}
+  .fr-profile-sidebar b {font-size:12px;color:#223043;}
+  .fr-profile-scroll {flex:1;min-width:0;overflow:auto;max-height:60vh;
+    background:#f4f6f7;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+  .fr-profile-svg {display:block;min-width:max-content;font:11px system-ui,sans-serif;}
+  .fr-grid-horizontal {stroke:#b8c1c7;stroke-width:.75;opacity:.55;}
+  .fr-profile-top-axis {stroke:#7a8896;stroke-width:1;}
+  .fr-axis-level {font-size:12px;fill:#455769;}
+  .fr-axis-tick {stroke:#8d9daa;stroke-width:.7;stroke-dasharray:2 5;opacity:.75;}
+  .fr-distance-tick {font-size:12px;fill:#697988;}
+  .fr-waypoint-line {stroke:#c6463d;stroke-width:1;stroke-dasharray:4 4;opacity:.56;}
+  .fr-waypoint-line.fr-waypoint-active {stroke:#a92b28;stroke-width:1.7;opacity:.96;}
+  .fr-barb {opacity:.83;pointer-events:none;}
+  .fr-component-tail,.fr-component-head {pointer-events:auto;cursor:help;}
+  .fr-component-arrow {fill:none;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;}
+  .fr-component-amount {font-size:11px;font-weight:800;paint-order:stroke fill;stroke:#f4f5f1;stroke-width:2.3px;stroke-linejoin:round;}
+  .fr-component-tail .fr-component-arrow {stroke:#12834d;}
+  .fr-component-tail .fr-component-amount {fill:#086336;}
+  .fr-component-head .fr-component-arrow {stroke:#c0343d;}
+  .fr-component-head .fr-component-amount {fill:#a52830;}
+  .fr-wind-tail-label {font-weight:800;color:#12834d;}
+  .fr-wind-head-label {font-weight:800;color:#bb2f3d;}
+  .fr-wind-neutral-label {font-weight:700;color:#5d6c77;}
+  .fr-wind-zero-dash {font-size:12px;color:#677783;}
+  .fr-legend-tail,.fr-legend-head,.fr-legend-cross {display:inline-block;font-style:normal;font-size:15px;font-weight:900;line-height:1;}
+  .fr-legend-tail {color:#12834d;}
+  .fr-legend-head {color:#c0343d;}
+  .fr-legend-cross {color:#64727e;}
+  .fr-isa-annotation {fill:#604b47;font-size:11px;font-weight:650;
+    paint-order:stroke;stroke:rgba(255,255,255,.75);stroke-width:2.1px;}
+  .fr-selected-fl-line {stroke:#147be7;stroke-width:3;}
+  .fr-selected-fl-dot {stroke:#1374d2;stroke-width:1.6;fill:#fff;}
+  .fr-selected-level-label {font-size:12px;font-weight:700;fill:#fff;}
+  .fr-tropopause-line {fill:none;stroke:#725a42;stroke-width:2.5;
+    stroke-dasharray:7 4;stroke-linejoin:round;}
+  .fr-tropopause-dot {fill:#725a42;stroke:#f5f2ed;stroke-width:1;}
+  .fr-waypoint-target {cursor:pointer;}
+  .fr-waypoint-target:focus {outline:none;}
+  .fr-waypoint-circle {fill:#ad2428;stroke:#fff;stroke-width:1.1;}
+  .fr-waypoint-circle.fr-waypoint-circle-active {fill:#1c70cf;stroke:#0f4a85;stroke-width:2;}
+  .fr-waypoint-number {font-size:11px;font-weight:700;fill:#fff;pointer-events:none;}
+  .fr-waypoint-code {font-size:10px;font-weight:700;fill:#3e4d5a;pointer-events:none;}
+  .fr-route-bottom-label {font-size:10px;fill:#647485;}
+  .fr-profile-legend {display:flex;gap:13px;flex-wrap:wrap;align-items:center;
+    padding:7px 13px;color:#354658;font-size:10px;background:#e9eef2;border-top:1px solid #cfd7dd;}
+  .fr-profile-legend span {display:flex;align-items:center;gap:6px;}
+  .fr-legend-line {display:inline-block;width:20px;height:3px;background:#147be7;}
+  .fr-legend-tropo {display:inline-block;width:20px;border-top:2px dashed #725a42;}
+  .fr-legend-color {display:inline-block;width:55px;height:9px;border-radius:3px;
+    background:linear-gradient(90deg,#b7dce7,#dbeddc,#f6e9d2,#fbb9a5,#ee8e7f);}
+  .fr-profile-note {font-size:10px;color:#667789;padding:5px 12px 9px;background:#e9eef2;}
+  .fr-profile-note p {margin:4px 0;}
+  .fr-profile-note-details>summary {cursor:pointer;}
+  @media(max-width:650px) {
+    .fr-profile-panel {bottom:48px;max-height:72vh;}
+    .fr-profile-sidebar {flex-basis:100px;padding:11px 7px;gap:12px;}
+    .fr-profile-distance {font-size:15px;}
+    .fr-profile-head {padding:8px 10px;}
+    .fr-profile-head strong {font-size:13px;}
+    .fr-profile-head span {font-size:10px;}
+    .fr-profile-scroll {max-height:51vh;}
+  }
   .flightplanner .fr-shot-preview {display:flex;align-items:center;gap:9px;margin:9px 0;color:#cddfea;font-size:11px;}
   .flightplanner .fr-shot-preview img {max-width:90px;max-height:70px;object-fit:contain;border:1px solid #68798a;border-radius:4px;}
   .flightplanner .small {font-size:11px;line-height:1.5;color:#bfc6cf;margin:7px 0;}
