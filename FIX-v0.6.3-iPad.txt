@@ -1,0 +1,16 @@
+УСТРАНЕНИЕ СБОЯ ОТКРЫТИЯ ПЛАГИНА (Windy v0.6.3)
+
+1. В Codespaces загрузи Windy-Flight-Route-Analyzer-UPDATE-v0.6.3.zip в корень проекта.
+2. Перед изменением проверь `git status`. Если идёт незавершённый rebase, сначала разреши конфликт.
+3. Выполни команды:
+   unzip -o Windy-Flight-Route-Analyzer-UPDATE-v0.6.3.zip
+   npm test
+   npm run build
+   git add src/plugin.svelte src/pluginConfig.ts package.json README.md
+   git commit -m "Fix Windy startup and waypoint labels v0.6.3"
+   git push origin main
+4. На GitHub: Actions → publish-plugin → Run workflow.
+5. На iPad перезапусти Windy, открой обновлённый плагин.
+
+Google Drive/NavData повторно загружать не нужно.
+Если npm run build выдаёт ошибку, не публикуй; пришли журнал.

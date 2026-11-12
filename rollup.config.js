@@ -28,7 +28,7 @@ export default {
       script:data=>sveltePreprocess({sourceMap:true}).script(data)
     }}),
     rollupSwc({include:['**/*.ts','**/*.svelte'],sourceMaps:true}),
-    resolve({browser:true,mainFields:['module','jsnext:main','main'],preferBuiltins:false,dedupe:['svelte']}),
+    resolve({browser:true,mainFields:['module','jsnext:main','main'],preferBuiltins:false,dedupe:['svelte'],extensions:['.mjs','.js','.json','.node','.ts','.tsx','.svelte']}),
     commonjs(),transformCodeToESMPlugin(),
     process.env.SERVE!=='false' && serve({
       contentBase:'dist',host:'0.0.0.0',port:9999,headers:{'Access-Control-Allow-Origin':'*'},

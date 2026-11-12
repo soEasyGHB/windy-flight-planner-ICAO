@@ -1,0 +1,19 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const rollup=readFileSync('rollup.config.js','utf8');
+const pkg=JSON.parse(readFileSync('package.json','utf8'));
+const workflow=readFileSync('.github/workflows/publish-plugin.yml','utf8');
+const entry=readFileSync('src/plugin.svelte','utf8');
+const extensions=rollup.match(/resolve\(\{[^}]*extensions:\[([^\]]+)\]/)?.[1]??'';
+for(const extension of ["'.js'","'.ts'","'.svelte'"])
+  assert(extensions.includes(extension),`Rollup node-resolve missing ${extension}; local TS modules will not resolve`);
+assert(pkg.scripts.build.includes('cp package.json dist/package.json'),'Windy dist/package.json must be copied during build');
+assert(pkg.scripts.build.includes('SERVE=false rollup -c'),'build must compile with Rollup (not just run source-level tests)');
+assert(workflow.includes('npm run build') && workflow.includes('npm run verify:release'),'publish workflow must verify actual Rollup artifacts');
+assert(workflow.indexOf('npm run verify:release') < workflow.indexOf('Publish private Windy plugin'),'verify gate must precede upload');
+const script=entry.match(/<script\s+lang=['"]ts['"]>([\s\S]*?)<\/script>/)?.[1];
+assert(script,'Svelte component must contain a TS script');
+const imports=Array.from(script.matchAll(/\bfrom\s+['"](\.\/[^'"]+)['"]/g),v=>v[1]);
+assert(imports.some(v=>v==='./windyWeather'),'main component must import weather client');
+assert(imports.some(v=>v==='./profileChart'),'main component must import profile computation');
+console.log(`PASS: Rollup resolves extensionless TypeScript imports; dist/package.json is copied; actual build and release gate enabled (${imports.length} local TS imports)`);

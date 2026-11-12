@@ -4,6 +4,9 @@ const source=readFileSync('src/pluginConfig.ts','utf8');
 const version=source.match(/\bversion\s*:\s*['"]([^'"]+)['"]/)?.[1];
 if(version!==pkg.version)throw Error(`Version mismatch: package ${pkg.version}, config ${version??'missing'}`);
 if(!existsSync('dist/plugin.json'))throw Error('dist/plugin.json missing: run npm run build first');
+if(!existsSync('dist/package.json'))throw Error('dist/package.json missing: Windy publication requires a complete dist');
+const distPkg=JSON.parse(readFileSync('dist/package.json','utf8'));
+if(distPkg.version!==pkg.version)throw Error(`Stale dist/package.json: ${distPkg.version} != ${pkg.version}`);
 const manifest=JSON.parse(readFileSync('dist/plugin.json','utf8'));
 if(manifest.version!==pkg.version)throw Error(`Stale manifest: dist/plugin.json is ${manifest.version}, package.json is ${pkg.version}`);
 for(const path of ['dist/plugin.js','dist/plugin.min.js'])

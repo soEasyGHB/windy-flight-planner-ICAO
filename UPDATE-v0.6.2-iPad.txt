@@ -1,0 +1,20 @@
+Windy Flight Route Analyzer v0.6.2 — маршрутные точки без названий трасс
+
+1. В Codespaces откройте корень репозитория; там должен быть package.json.
+2. Загрузите Windy-Flight-Route-Analyzer-UPDATE-v0.6.2.zip через Explorer → Upload.
+3. Если git status сообщает о конфликтах, НЕ запускайте команды ниже до их устранения.
+4. Вставьте в Terminal:
+
+git pull --rebase origin main
+unzip -o Windy-Flight-Route-Analyzer-UPDATE-v0.6.2.zip
+npm test
+npm run build
+git add src/navdb.ts src/plugin.svelte src/pluginConfig.ts package.json tests/test.mjs README.md
+git commit -m "Show named waypoints on map v0.6.2"
+git push origin main
+
+5. GitHub → Actions → publish-plugin → Run workflow.
+6. Переоткройте плагин Windy, нажмите «Построить маршрут».
+7. Счётчик «подписей на карте» должен быть больше 0. На карте должны появиться FIX/RNAV из введённого OFP, но не обозначения сегментов ATS.
+
+Не загружайте базу из Drive повторно: навигационная база и GitHub Actions не менялись.

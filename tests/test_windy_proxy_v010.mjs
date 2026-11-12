@@ -32,4 +32,4 @@ try{
   else process.env.WINDY_POINT_FORECAST_KEY=originalKey;
   globalThis.fetch=originalFetch;
 }
-console.log('PASS v0.10.0: Vercel proxy key shielding, POST-only, origin/coordinates validation, Windy upstream contract');
+console.log('PASS v0.10.1 (v0.10.0 regression): Vercel proxy key shielding, POST-only, origin/coordinates validation, Windy upstream contract');

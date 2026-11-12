@@ -81,4 +81,4 @@ try{
   assert(reqs.filter(r=>String(r.url).includes('vercel')).every(r=>!r.options.body.includes('key')));
   assert(rows.every(r=>r.tropopauseFL===null),'failed tropopause fetch must not invent values');
 }finally{globalThis.fetch=prevFetch;}
-console.log('PASS v0.10.0: new card ordering, no manual FL, continuous tropopause, ISA isolines, even/odd wind recommendation and Windy API units');
+console.log('PASS v0.10.1 (v0.10.0 regression): new card ordering, no manual FL, continuous tropopause, ISA isolines, even/odd wind recommendation and Windy API units');
