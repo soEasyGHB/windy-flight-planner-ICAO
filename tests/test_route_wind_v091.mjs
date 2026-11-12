@@ -48,7 +48,7 @@ assert(middle.some(c=>c.kind==='head'&&c.signedKt<0));
 assert.deepEqual(PROFILE_LEVELS,[390,380,370,360,350,340,330]);
 assert.equal(buildRouteProfile([route[0]],360).waypointWinds[0],null, 'No route heading => no wind component');
 const ui=readFileSync('src/plugin.svelte','utf8');
-const visible=ui.slice(ui.indexOf('{#if profileOpen && weather.length}'),ui.indexOf('<script lang="ts">'));
+const visible=ui.slice(ui.indexOf('{#if profileOpen}'),ui.indexOf('<script lang="ts">'));
 assert(visible.includes('profileViz.components'),'Graph must render along-route components');
 assert(!visible.includes('profileViz.barbs'),'No north-referenced wind barbs must be drawn');
 for(const token of ['fr-component-tail','fr-component-head','Попутная','Встречная','fr-wind-zero-dash'])

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const src=readFileSync('src/plugin.svelte','utf8');
-const chart=src.slice(src.indexOf('{#if profileOpen && weather.length}'),src.indexOf('<script lang="ts">'));
+const chart=src.slice(src.indexOf('{#if profileOpen}'),src.indexOf('<script lang="ts">'));
 assert(chart.length>1000);
 assert(chart.includes('fr-component-tail'));
 assert(chart.includes('fr-component-head'));
@@ -14,7 +14,8 @@ assert(!chart.includes('Попутная +{'), 'No plus sign in selected waypoin
 assert(!chart.includes('Попутная составляющая, kt'), 'No kt in legend');
 assert(!chart.includes('Встречная составляющая, kt'), 'No kt in legend');
 assert(chart.includes('fr-wind-zero-dash')); // selected-point empty/zero component is a dash
-assert(chart.includes('fr-selected-fl-line'));
+assert(chart.includes('fr-recommended-fl-line'));
+assert(!chart.includes('fr-selected-fl-line'));
 assert(chart.includes('fr-tropopause-line'));
 assert(src.includes("let overlay='thunder';"));
 assert(src.includes('let fl=360;'));

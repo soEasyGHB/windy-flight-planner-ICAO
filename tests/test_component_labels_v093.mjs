@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {PROFILE_LEVELS, buildRouteProfile, alongTrackWind} from './generated/profileChart.js';
 
 const ui=readFileSync('src/plugin.svelte','utf8');
-const chart=ui.slice(ui.indexOf('{#if profileOpen && weather.length}'),ui.indexOf('<script lang="ts">'));
+const chart=ui.slice(ui.indexOf('{#if profileOpen}'),ui.indexOf('<script lang="ts">'));
 assert(chart.length>1000);
 assert(!chart.includes('fr-component-cross'));
 assert(!chart.includes('>0</text>'), 'Zero component should not be rendered');

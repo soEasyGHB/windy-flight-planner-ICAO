@@ -105,8 +105,26 @@ export async function loadWeather(samples:Sample[],fl:number,progress?:(s:string
     url.searchParams.set('longitude',batch.map(s=>s.lon.toFixed(4)).join(','));
     url.searchParams.set('hourly',variables.join(','));url.searchParams.set('timezone','GMT');
     url.searchParams.set('wind_speed_unit','kn');url.searchParams.set('forecast_days','16');
-    const response=await fetch(url.toString());
-    if(!response.ok)throw Error(`Open-Meteo HTTP ${response.status}`);
+    // A request can be stalled by the provider or Safari connectivity. Fail with
+    // an actionable message rather than leaving the flight profile loading forever.
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),30000);
+    let response:Response;
+    try {
+      response=await fetch(url.toString(),{signal:controller.signal});
+    } catch(err) {
+      if(controller.signal.aborted)throw Error('Open-Meteo: превышено время ожидания (30 секунд). Повтори запрос.');
+      throw Error('Open-Meteo недоступен: '+String(err));
+    } finally {clearTimeout(timeout);}
+    if(!response.ok) {
+      let detail='';
+      try {
+        const text=(await response.text()).slice(0,600);
+        try {const parsed=JSON.parse(text);detail=String(parsed.reason??parsed.message??'');}
+        catch(_err) {detail=text;}
+      } catch(_err) { /* some errors have no response body */ }
+      throw Error(`Open-Meteo HTTP ${response.status}${detail?': '+detail.slice(0,240):''}`);
+    }
     const raw=await response.json();
     const items=Array.isArray(raw)?raw:[raw];
     if(items.length!==batch.length)throw Error('Ответ Open-Meteo не соответствует запрошенным точкам');

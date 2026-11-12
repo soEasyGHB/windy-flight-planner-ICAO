@@ -24,14 +24,14 @@ assert(profile.waypoints[1].x-profile.waypoints[0].x < profile.waypoints[2].x-pr
 assert.equal(profile.tropopauseSegments.length,1);
 assert.equal(profile.tropopauseSegments[0].length,2);
 assert.equal(profile.tropopauseMarkers.length,2);
-assert(profile.tropopauseMarkers.every(p=>p.y>=profile.top && p.y<=profile.bottom));
+assert(profile.tropopauseMarkers.every(p=>p.y>=profile.tropopauseBandTop && p.y<=profile.tropopauseBandBottom));
 const noTopo=buildRouteProfile([sample(0,0,null),sample(1,100,410),sample(2,200,320)],360);
-assert.equal(noTopo.hasTropopause,true,'a line crossing the visible FL band should be clipped and shown');
+assert.equal(noTopo.hasTropopause,true,'model tropopause is shown on dedicated altitude band');
 assert.equal(noTopo.tropopauseSegments.length,1);
-assert(noTopo.tropopauseSegments[0].every(p=>p.y>=noTopo.top && p.y<=noTopo.bottom));
+assert(noTopo.tropopauseSegments[0].every(p=>p.y>=noTopo.tropopauseBandTop && p.y<=noTopo.tropopauseBandBottom));
 const onlyAbove=buildRouteProfile([sample(0,0,420),sample(1,100,430)],360);
-assert.equal(onlyAbove.hasTropopause,false,'out-of-range tropopause must not be faked at upper edge');
-assert.match(onlyAbove.tropopauseDescription,/выше FL390/);
+assert.equal(onlyAbove.hasTropopause,true,'out-of-range tropopause must display its real FL on independent scale');
+assert.equal(onlyAbove.tropopauseSegments.length,1);
 assert.equal(buildRouteProfile([],360).barbs.length,0);
 assert.deepEqual(windBarbGeometry(0).calm,true);
 assert(windBarbGeometry(55).pennants.includes('Z'),'50kt is a pennant');
@@ -41,12 +41,12 @@ assert(vector&& (vector.direction<20 || vector.direction>340),'wind direction mu
 assert.notEqual(isaColor(-10),isaColor(10));
 
 const ui=readFileSync('src/plugin.svelte','utf8');
-for(const signature of ['buildRouteProfile(weather,weatherFL)','fr-profile-svg','fr-selected-fl-line',
+for(const signature of ['buildRouteProfile(weather,weatherFL)','fr-profile-svg','fr-recommended-fl-line',
   'fr-tropopause-line','fr-profile-flight-summary','fr-barb','fr-waypoint-target','Тропопауза≈'])
   assert(ui.includes(signature),`New graphical profile UI marker missing: ${signature}`);
-const panel=ui.slice(ui.indexOf('{#if profileOpen && weather.length}'),ui.indexOf('<script lang="ts">'));
+const panel=ui.slice(ui.indexOf('{#if profileOpen}'),ui.indexOf('<script lang="ts">'));
 assert(!panel.includes('fr-profile-grid'),'Old table-based profile must be removed');
 assert(!panel.includes('<table'),'Standalone profile must not render a table');
 assert(!panel.includes('FL300'),'Profile should show only FL330 to FL390');
 assert(!panel.includes('FL400'),'Profile should show only FL330 to FL390');
-console.log('PASS: true SVG route cross-section FL330–390, selected FL360, ISA shading, meteorological barbs, real NM spacing, bounded tropopause');
+console.log('PASS: true SVG route cross-section FL330–390, selected FL360, ISA shading, meteorological barbs, real NM spacing, continuous tropopause band');

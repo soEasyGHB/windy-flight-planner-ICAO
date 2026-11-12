@@ -33,7 +33,7 @@ const src=readFileSync('src/plugin.svelte','utf8');
 const head=src.slice(0,src.indexOf('<script lang="ts">'));
 const main=head.slice(head.indexOf('fr-main-stack'),head.indexOf('<details class="fr-settings">'));
 assert(main.includes('id="fr-etd-date"') && main.includes('id="fr-etd-time"'));
-assert(main.includes('fr-flight-level') && !main.includes('fr-tas'));
+assert(!main.includes('fr-flight-level') && !main.includes('fr-tas')); 
 assert(src.includes('parseNamedFixRoute(routeText)'));
 assert(src.includes("let overlay='thunder'"));
 assert(src.includes('let fl=360') && src.includes('let tas=450'));

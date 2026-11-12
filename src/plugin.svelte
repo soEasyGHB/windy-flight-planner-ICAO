@@ -23,10 +23,6 @@
           <label for="fr-etd-time">Время вылета (UTC)</label>
           <input id="fr-etd-time" type="time" step="60" bind:value={etdTime} on:change={flightInputsChanged} />
         </div>
-        <div>
-          <label for="fr-flight-level">Эшелон полёта (FL330–FL390)</label>
-          <input id="fr-flight-level" type="number" min="330" max="390" step="10" bind:value={fl} on:change={flightLevelChanged} />
-        </div>
       </div>
     </section>
 
@@ -41,6 +37,19 @@
       </select>
     </section>
 
+    <section class="fr-main-card fr-main-card--light fr-main-card--analysis" aria-labelledby="fr-section-our-planner">
+      <h3 id="fr-section-our-planner">Наш планировщик полёта</h3>
+      <div class="fr-action-grid fr-action-grid--single">
+        <button type="button" class="primary" disabled={busy} on:click={openWeatherProfile}>Построить метеопрофиль и подобрать эшелоны</button>
+      </div>
+      {#if weather.length}
+        <div class="fr-recommended-inline">
+          {#each profileViz.recommendations as rec (rec.parity)}
+            <span>{rec.parity==='even'?'Чётный':'Нечётный'}: FL{rec.fl} ({rec.averageTailwindKt>=0?'+':''}{rec.averageTailwindKt} kt)</span>
+          {/each}
+        </div>
+      {/if}
+    </section>
     <section class="fr-main-card fr-main-card--light" aria-labelledby="fr-section-export">
       <h3 id="fr-section-export">Планировщик полёта</h3>
       <div class="fr-action-grid fr-action-grid--single">
@@ -64,8 +73,8 @@
         {#if altitudeStatus}<p class="small fr-altitude-notice">{altitudeStatus}</p>{/if}
         {#if overlay === 'radar'}<p class="small">Радар — наблюдения, не высотный прогноз. В отдельных версиях Windy доступ из плагина может быть ограничен.</p>{/if}
         {#if offlineStatus}<p class="info">{offlineStatus}</p>{/if}
-        <p class="small">Эшелон выбирается в главном окне (по умолчанию FL360), TAS фиксирована: 450 kt. ETA ориентировочный: расстояния между FIX по прямым, без ATS и ветровой поправки. Карта Windy синхронизируется с ETD и FL.</p>
-        <p class="small">Перед открытием штатного Route Planner карта синхронизируется с ETD и FL. Его внутренние скорость и времена по точкам не задаются через публичный API; их необходимо проверить в самом Windy.</p>
+        <p class="small">TAS фиксирована: 450 kt. Эшелон не вводится вручную: отдельно рассчитываются метеорологические рекомендации для чётных и нечётных FL330–390. ETA приблизительный, без ATS и ветровой поправки. Прогноз: Windy Point Forecast GFS при наличии ключа и настройки Vercel.</p>
+        <p class="small">Перед открытием штатного Route Planner карта синхронизируется с ETD. Его внутренние параметры не задаются через публичный API; проверь их в Windy.</p>
         </div>
       </details>
       {#if timeWaypoints.length}
@@ -112,17 +121,17 @@
         </div>
       </details>
       <details class="fr-settings-group">
-        <summary>Модель, эшелон и время Windy</summary>
+        <summary>Модель карты и время Windy</summary>
         <div class="fr-settings-body">
-        <h3>Модель, высоты и время Windy</h3>
+        <h3>Модель карты и время Windy</h3>
               <div class="twofields">
                 <div><label for="fr-model">Модель погоды</label><select id="fr-model" bind:value={model} on:change={setWeatherLayer}>
                   <option value="ecmwf">ECMWF</option><option value="gfs">GFS</option>
                 </select></div>
-                <div><label for="fr-apply-level">Выбранный эшелон</label><button id="fr-apply-level" type="button" class="full" on:click={setWeatherLayer}>Показать FL{fl}</button></div>
+                <div><label>Карта Windy</label><span class="small">Высота карты выбирается автоматически после прогноза</span></div>
               </div>
               <div class="btnrow"><button type="button" on:click={setMapToDeparture}>Время Windy = ETD</button></div>
-              <p class="small">Высота на карте соответствует ближайшему доступному изобарическому уровню. Для радара эшелон не применяется.</p>
+              <p class="small">Для карты Windy применяется ближайший поддерживаемый изобарический уровень. Для радара эшелон не применяется. Рекомендации FL — только ветер, не расчёт эксплуатационного эшелона.</p>
         </div>
       </details>
       <details class="fr-settings-group">
@@ -145,20 +154,33 @@
                   </select></div>
                 <div><label for="fr-report-map">Показать этот слой</label><button id="fr-report-map" type="button" class="full" on:click={showReportWeatherLayer}>Показать на карте</button></div>
               </div>
-              <p class="small">HTML/PDF сохраняет схему маршрута, приложенный скриншот выбранной карты и прогноз Open-Meteo, если он уже загружен. Снимок автоматически не создаётся.</p>
+              <p class="small">HTML/PDF сохраняет схему маршрута, приложенный скриншот выбранной карты и модельный прогноз Windy GFS, если он уже загружен. Снимок автоматически не создаётся.</p>
+        </div>
+      </details>
+      <details class="fr-settings-group">
+        <summary>Источник данных Windy Point Forecast</summary>
+        <div class="fr-settings-body">
+          <label for="fr-windy-base-url">Адрес своего проекта Vercel (HTTPS, без /api)</label>
+          <input id="fr-windy-base-url" type="url" bind:value={windyApiBaseUrl} on:change={saveForecastSettings}
+            placeholder="https://ваш-проект.vercel.app" autocomplete="url" />
+          <p class="small">Vercel → Environment Variables → <code>WINDY_POINT_FORECAST_KEY</code> (именно Point Forecast, не Map API). Ключ остаётся на Vercel; здесь сохраняется только адрес сайта. Таблица и ветер — Windy GFS; ECMWF недоступен в Point Forecast API. Бесплатный тестовый ключ Windy выдаёт изменённые данные, непригодные для реального анализа.</p>
+          <p class="small">Тропопауза рассчитывается отдельно по температуре и геопотенциальной высоте Open-Meteo; это приблизительная оценка модели, не опубликованная высота WAFS/SIGWX.</p>
         </div>
       </details>
       <details class="fr-settings-group">
         <summary>Прогноз и таблицы FL300–FL400</summary>
         <div class="fr-settings-body">
         <h3>Прогноз по маршруту и высотам</h3>
-          <p class="small">Метеоразрез и таблица ниже используют прогноз Open-Meteo (Best Match), отличный от выбранной карты Windy. ETD UTC и TAS задаются выше. Тропопауза — приближённая оценка по вертикальному температурному градиенту модели, а не фактическая авиационная высота тропопаузы.</p>
+          <p class="small">Метеоразрез и таблица ниже используют Windy Point Forecast (GFS) через Vercel, а карта может показывать другую модель. Тропопауза — отдельная приблизительная оценка Open-Meteo по температуре и модельным высотам, не официальный прогноз WAFS/SIGWX.</p>
           <div class="btnrow">
-            <button type="button" class="primary" disabled={busy} on:click={openWeatherProfile}>Получить профиль и открыть</button>
+            <button type="button" class="primary" disabled={busy} on:click={openWeatherProfile}>{profileState==='loading'?'Загружаю профиль…':'Получить профиль и открыть'}</button>
             <button type="button" disabled={!weather.length} on:click={downloadWeather}>CSV отчёт</button>
           </div>
+          {#if profileFeedback}
+            <p class:warning={profileState==='error'} class="fr-profile-feedback" role="status" aria-live="polite">{profileFeedback}</p>
+          {/if}
           {#if weather.length}
-            <h4>Параметры на FL{weatherFL} (ориентировочный ближайший уровень {weather[0].flPressure} hPa)</h4>
+            <h4>Модельный прогноз на FL{weatherFL} (интерполяция из Windy GFS)</h4>
             <div class="scrolltable"><table><thead><tr><th>Место</th><th>ETA UTC</th><th>T °C</th><th>Ветер kt</th><th>ISA Δ°C</th><th>Тропопауза≈ FL</th><th>RH %</th><th>Индикаторы*</th></tr></thead><tbody>
               {#each weather as w}
                 <tr><td>{w.sample.label}<span class="muted"> · {Math.round(w.sample.distanceNm)}NM</span></td>
@@ -189,7 +211,7 @@
                 {/each}</tr>
               {/each}
             </tbody></table></div>
-            <p class="small">Данные прогноза: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo.com</a> (CC BY 4.0). Интерполяция вдоль маршрута и пороговые индикаторы — модификации в этом проекте.</p>
+            <p class="small">Таблица: Windy Point Forecast (GFS, требуется отдельный действующий ключ). Значения FL между изобарическими уровнями — интерполяция, не отдельные значения модели. Тропопауза: отдельная оценка по Open-Meteo. Пропуски не заполняются выдуманными значениями.</p>
             <p class="small">* Индикаторы по упрощённым порогам: T от −20 до 0 °C и RH ≥80% (условия возможного обледенения); ветер ≥100 kt; CAPE &gt;1000 J/kg; разница скорости ветра ≥35 kt между соседними уровнями. Это <b>НЕ</b> прогноз фактического обледенения, CAT/турбулентности, гроз по трассе или опасных явлений по ICAO. Для решений используйте SIGMET, значимые карты, AIP, NOTAM и утверждённые источники.</p>
           {/if}
         </div>
@@ -201,7 +223,7 @@
             <button type="button" class="primary" on:click={saveOfflineHtml}>Сохранить HTML офлайн</button>
             <button type="button" on:click={openOfflinePrint}>Открыть для PDF</button>
           </div>
-          <div class="btnrow"><button type="button" disabled={busy} on:click={openWeatherProfile}>Получить ветер, T и ISA по точкам</button></div>
+          <div class="btnrow"><button type="button" disabled={busy} on:click={openWeatherProfile}>{profileState==='loading'?'Загружаю профиль…':'Получить ветер, T и ISA по точкам'}</button></div>
         </div>
       </details>
 
@@ -229,18 +251,19 @@
     </div>
   </details>
 </section>
-{#if profileOpen && weather.length}
+{#if profileOpen}
   <aside class="fr-profile-panel" aria-label="Графический вертикальный метеопрофиль маршрута">
     <header class="fr-profile-head">
       <div>
         <strong>Профиль по маршруту</strong>
-        <span>ETD {etdDate} {etdTime} UTC · TAS {tas} · FL{weatherFL} · Open-Meteo</span>
+        <span>ETD {etdDate} {etdTime} UTC · TAS {tas} · Windy Point Forecast GFS; тропопауза отдельно</span>
       </div>
       <button type="button" class="fr-profile-close" on:click={() => profileOpen=false} aria-label="Закрыть профиль">×</button>
     </header>
+    {#if weather.length}
     <div class="fr-profile-selected-data">
       <strong>{weather[activeProfileIndex]?.sample.label ?? '—'}</strong>
-      <span>FL{weatherFL}</span>
+      <span>Модельные параметры FL{weatherFL}</span>
       {#if profileViz.waypointWinds[activeProfileIndex]}
         <span class={profileViz.waypointWinds[activeProfileIndex]?.kind==='tail'?'fr-wind-tail-label':profileViz.waypointWinds[activeProfileIndex]?.kind==='head'?'fr-wind-head-label':'fr-wind-neutral-label'}>
           {#if profileViz.waypointWinds[activeProfileIndex]?.kind==='tail'}
@@ -263,7 +286,7 @@
       <div class="fr-profile-scroll" aria-label="Профиль ISA, ветра и тропопаузы — прокручивается горизонтально">
         <svg class="fr-profile-svg" xmlns="http://www.w3.org/2000/svg"
           width={profileViz.width} height={profileViz.height} viewBox={`0 0 ${profileViz.width} ${profileViz.height}`}
-          role="img" aria-label={`Метеопрофиль FL330–390; выбран FL${weatherFL}; расстояние ${Math.round(profileViz.totalNm)} NM`}>
+          role="img" aria-label={`Метеопрофиль FL330–390; рекомендуемые чётный и нечётный эшелоны; расстояние ${Math.round(profileViz.totalNm)} NM`}>
           <defs>
             {#each profileViz.bands as band (band.level)}
               <linearGradient id={`fr-isa-gradient-${band.level}`} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -285,12 +308,7 @@
           {#each profileViz.levels as level (level)}
             <line class="fr-grid-horizontal" x1={profileViz.left} x2={profileViz.right}
               y1={yForFlightLevel(level)} y2={yForFlightLevel(level)}/>
-            {#if level===weatherFL}
-              <rect x="11" y={yForFlightLevel(level)-14} width="62" height="28" rx="14" fill="#2073d2"/>
-              <text class="fr-selected-level-label" x="42" y={yForFlightLevel(level)+5} text-anchor="middle">FL{level}</text>
-            {:else}
-              <text class="fr-axis-level" x="74" y={yForFlightLevel(level)+5} text-anchor="end">FL{level}</text>
-            {/if}
+            <text class="fr-axis-level" x="74" y={yForFlightLevel(level)+5} text-anchor="end">FL{level}</text>
           {/each}
           <line class="fr-profile-top-axis" x1={profileViz.left} x2={profileViz.right} y1={profileViz.top-26} y2={profileViz.top-26}/>
           {#each profileViz.ticks as tick (tick.distanceNm)}
@@ -301,8 +319,18 @@
             <line class:fr-waypoint-active={i===activeProfileIndex} class="fr-waypoint-line"
               x1={waypoint.x} x2={waypoint.x} y1={profileViz.top-42} y2={profileViz.bottom+26}/>
           {/each}
-          <line class="fr-selected-fl-line" x1={profileViz.left} x2={profileViz.right}
-            y1={profileViz.selectedY} y2={profileViz.selectedY}/>
+          {#each profileViz.isaContours as contour (contour.value)}
+            {#each contour.segments as segment, i (i)}
+              <polyline class="fr-isa-contour" points={segment.map(p=>`${p.x},${p.y}`).join(' ')}/>
+            {/each}
+            {#each contour.labels as item, i (i)}
+              <text class="fr-isa-contour-label" x={item.x} y={item.y} text-anchor="middle">{item.text}</text>
+            {/each}
+          {/each}
+          {#each profileViz.recommendations as rec (rec.parity)}
+            <line class="fr-recommended-fl-line" class:fr-recommended-fl-odd={rec.parity==='odd'}
+              x1={profileViz.left} x2={profileViz.right} y1={yForFlightLevel(rec.fl)} y2={yForFlightLevel(rec.fl)}/>
+          {/each}
           {#each profileViz.components as component, i (i)}
             <g class={component.kind==='tail'?'fr-component-tail':'fr-component-head'}
               transform={`translate(${component.x},${component.y})`}>
@@ -315,9 +343,9 @@
               <text class="fr-component-amount" x="0" y="11" text-anchor="middle">{component.componentKt}</text>
             </g>
           {/each}
-          {#each profileViz.isaLabels as item, i (i)}
-            <text class="fr-isa-annotation" x={item.x} y={item.y} text-anchor="middle">{item.text}</text>
-          {/each}
+          <rect class="fr-tropopause-band" x={profileViz.left} y={profileViz.tropopauseBandTop-4}
+            width={profileViz.right-profileViz.left} height={profileViz.tropopauseBandBottom-profileViz.tropopauseBandTop+8} rx="4"/>
+          <text class="fr-tropopause-band-label" x={profileViz.left+7} y={profileViz.tropopauseBandTop-10}>ТРОПОПАУЗА · отдельная шкала FL</text>
           {#each profileViz.tropopauseSegments as segment, i (i)}
             <polyline class="fr-tropopause-line" points={segment.map(m=>`${m.x},${m.y}`).join(' ')}/>
           {/each}
@@ -325,20 +353,19 @@
             <circle class="fr-tropopause-dot" cx={marker.x} cy={marker.y} r="2.8"/>
           {/each}
           {#if profileViz.tropopauseLabel}
-            <g class="fr-tropopause-tag" transform={`translate(${Math.max(profileViz.left+110,Math.min(profileViz.right-110,profileViz.tropopauseLabel.x))},${Math.max(profileViz.top+14,Math.min(profileViz.bottom-19,profileViz.tropopauseLabel.y-21))})`}>
+            <g class="fr-tropopause-tag" transform={`translate(${Math.max(profileViz.left+110,Math.min(profileViz.right-110,profileViz.tropopauseLabel.x))},${profileViz.tropopauseBandTop-14})`}>
               <rect x="-105" y="-12" width="210" height="21" rx="8"/>
               <text x="0" y="3" text-anchor="middle">{profileViz.tropopauseDescription}</text>
             </g>
-          {:else if profileViz.tropopauseDescription.includes('выше FL390') || profileViz.tropopauseDescription.includes('ниже FL330')}
-            <text class="fr-tropopause-outside" x={profileViz.left+12} y={profileViz.top-13}>{profileViz.tropopauseDescription}</text>
+          {:else}
+            <text class="fr-tropopause-outside" x={profileViz.left+12} y={profileViz.tropopauseBandTop+22}>{profileViz.tropopauseDescription}</text>
           {/if}
           {#each profileViz.waypoints as waypoint, i (i)}
-            <circle class="fr-selected-fl-dot" cx={waypoint.x} cy={profileViz.selectedY} r="3.2"/>
             <g class="fr-waypoint-target" role="button" tabindex="0"
               aria-label={`Точка ${waypoint.label}, ETA ${waypoint.etaUtc}. Показать время на карте`}
               on:click={() => selectProfilePoint(i)}
               on:keydown={(e) => { if(e.key==='Enter'||e.key===' ') { e.preventDefault();selectProfilePoint(i); } }}>
-              <title>{waypoint.label} · {waypoint.etaUtc} · {Math.round(waypoint.distanceNm)} NM · FL{weatherFL}</title>
+              <title>{waypoint.label} · {waypoint.etaUtc} · {Math.round(waypoint.distanceNm)} NM</title>
               <path class="fr-waypoint-leader" d={`M${waypoint.x} ${profileViz.top-42} L${waypoint.labelX} ${waypoint.labelY+4}`}/>
               <rect class="fr-waypoint-nameplate" class:fr-waypoint-nameplate-active={i===activeProfileIndex}
                 x={waypoint.labelX-waypoint.labelWidth/2} y={waypoint.labelY-12}
@@ -346,7 +373,7 @@
               <text class="fr-waypoint-code" x={waypoint.labelX} y={waypoint.labelY} text-anchor="middle">{waypoint.label}</text>
             </g>
           {/each}
-          <text class="fr-route-bottom-label" x={profileViz.left} y={profileViz.bottom+48}>Точки OFP · расчёт по прямым между FIX · расстояния и ETA приблизительные</text>
+          <text class="fr-route-bottom-label" x={profileViz.left} y={profileViz.bottom+48}>Точки OFP · расстояния и ETA приблизительные · рекомендации только по ветру</text>
         </svg>
       </div>
     </div>
@@ -354,14 +381,26 @@
       <span><b>ETD UTC</b> {etdDate} {etdTime}</span>
       <span><b>Расстояние</b> {Math.round(profileViz.totalNm).toLocaleString('ru-RU')} NM</span>
       <span><b>Расчётное время</b> {formatFlightDuration(profileViz.totalNm, tas)}</span>
-      <span><b>Эшелон</b> FL{weatherFL}</span>
+      {#each profileViz.recommendations as rec (rec.parity)}
+        <span class="fr-profile-recommendation"><b>{rec.parity==='even'?'Чётный':'Нечётный'} — рекомендуемый эшелон</b> FL{rec.fl} ({rec.averageTailwindKt>=0?'+':''}{rec.averageTailwindKt} kt)</span>
+      {/each}
+      {#if !profileViz.recommendations.length}<span><b>Рекомендованные эшелоны</b> недостаточно данных ветра</span>{/if}
       <span><b>TAS</b> {tas}</span>
       <span class="fr-profile-tropopause-status">{profileViz.tropopauseDescription}</span>
     </footer>
     <details class="fr-profile-note fr-profile-note-details">
       <summary>Источники и ограничения прогноза</summary>
-      <p>Продольная составляющая рассчитана из метеорологического направления ветра ОТ и истинного путевого угла прямого участка между соседними FIX: зелёная стрелка направо — попутная, красная налево — встречная, чисто боковой ветер и отсутствие данных не отображаются на графике. Полная скорость и направление ветра доступны при наведении. Данные — Open-Meteo, не штатный профиль Windy. Геометрия маршрута упрощена, без ATS; IAS/GS и ETA не пересчитываются по ветру. Тропопауза — приблизительная оценка. Не для оперативной навигации.</p>
+      <p>Прогноз температуры и ветра — Windy Point Forecast GFS (через Vercel), ISA рассчитывается по отклонению от стандартной атмосферы. Тропопауза отдельно оценена из Open-Meteo по температуре и геопотенциальной высоте; показана на отдельной шкале, чтобы не искажать FL330–390. Голубые линии — лучший средний продольный ветер для чётных и нечётных эшелонов среди FL330–390; аэродинамика, расход, вес, ограничения воздушного пространства, направление полёта по правилам эшелонирования и безопасность не учитываются. Геометрия прямолинейная между FIX, без ATS, ETA без учёта ветра. Не для оперативной навигации или выбора разрешённого эшелона.</p>
     </details>
+    {:else}
+      <div class="fr-profile-empty" role="status" aria-live="polite">
+        <strong>{profileState==='loading'?'Загрузка данных по маршруту…':'Профиль не построен'}</strong>
+        <p>{profileFeedback || 'Укажите маршрут и дату вылета, затем повторите запрос.'}</p>
+        {#if profileState==='error'}
+          <button type="button" class="fr-profile-retry" disabled={busy} on:click={openWeatherProfile}>Повторить запрос</button>
+        {/if}
+      </div>
+    {/if}
   </aside>
 {/if}
 <script lang="ts">
@@ -373,7 +412,8 @@
   import { onMount,onDestroy } from 'svelte';
   import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
-  import {generateWaypointSamples,loadWeather,flLevel,PRESSURES,standardAltitudeM} from './weather';
+  import {generateWaypointSamples,flLevel,PRESSURES,standardAltitudeM} from './weather';
+  import {loadWindyWeather,normalizeForecastBaseUrl,WINDY_PRESSURES} from './windyWeather';
   import {applyWindyAltitude} from './flightAltitude';
   import {buildRouteProfile,yForFlightLevel} from './profileChart';
   import {buildWindyPlannerRequest,makeRouteGpx,routeIssues} from './routePlanner';
@@ -408,8 +448,9 @@
   let labeledCount=0;
   let weather:WeatherRow[]=[];
   let weatherFL=360;
+  let windyApiBaseUrl='';
   let busy=false;
-  // Start every plugin opening with the thunderstorm layer; fixed analysis FL360/TAS450.
+  // Keep the map level internal; meteorological cruise recommendations are automatic.
   let overlay='thunder';
   let model='ecmwf';
   let fl=360;
@@ -418,28 +459,42 @@
   const SAVED_FLIGHT_KEY='windy-flight-route-analyzer:flight:v1';
   function saveFlightInputs():void {
     try {
-      window.localStorage.setItem(SAVED_FLIGHT_KEY,JSON.stringify({routeText,etdDate,etdTime,fl}));
+      window.localStorage.setItem(SAVED_FLIGHT_KEY,JSON.stringify({routeText,etdDate,etdTime}));
     } catch (_err) { /* Safari private mode / disabled storage: never block the plugin */ }
   }
   function restoreFlightInputs():void {
     try {
+      const api=window.localStorage.getItem('windy-flight-route-analyzer:windy-base-url');
+      if(api && api.length<300)windyApiBaseUrl=api;
       const raw=window.localStorage.getItem(SAVED_FLIGHT_KEY);
       if(!raw)return;
-      const saved=JSON.parse(raw) as {routeText?:unknown;etdDate?:unknown;etdTime?:unknown;fl?:unknown};
+      const saved=JSON.parse(raw) as {routeText?:unknown;etdDate?:unknown;etdTime?:unknown};
       if(typeof saved.routeText==='string'&&saved.routeText.length<=50000)routeText=saved.routeText;
       if(typeof saved.etdDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(saved.etdDate))etdDate=saved.etdDate;
       if(typeof saved.etdTime==='string'&&/^\d{2}:\d{2}$/.test(saved.etdTime))etdTime=saved.etdTime;
-      if(typeof saved.fl==='number'&&Number.isInteger(saved.fl)&&saved.fl>=330&&saved.fl<=390&&saved.fl%10===0)fl=saved.fl;
     } catch (_err) { /* corrupted/blocked state: use defaults */ }
+  }
+  function saveForecastSettings():void {
+    try {window.localStorage.setItem('windy-flight-route-analyzer:windy-base-url',windyApiBaseUrl.trim());}
+    catch(_err) { /* can be blocked in private mode */ }
+    try {normalizeForecastBaseUrl(windyApiBaseUrl);status='Адрес Windy/Vercel сохранён';}
+    catch(err) {status='Проверь адрес Windy/Vercel: '+String(err);}
   }
   function routeInputChanged(event:Event):void {
     routeText=(event.currentTarget as HTMLTextAreaElement).value;
+    parsed=null;
+    weather=[];
+    profileOpen=false;
+    profileState='idle';
+    profileFeedback='';
     saveFlightInputs();
   }
   const initialETD=new Date(Date.now()+2*3600000).toISOString().slice(0,16);
   let etdDate=initialETD.slice(0,10);
   let etdTime=initialETD.slice(11,16);
   let profileOpen=false;
+  let profileState:'idle'|'loading'|'ready'|'error'='idle';
+  let profileFeedback='';
   let activeProfileIndex=0;
   let offlineOverlay:'thunder'|'turbulence'='thunder';
   let offlineImageUrl='';
@@ -452,9 +507,9 @@
 
   const cruiseFlightLevels=[300,310,320,330,340,350,360,370,380,390,400];
   $: profileViz=buildRouteProfile(weather,weatherFL);
-  const profilePressureLevels=[500,400,300,250,200,150,100];
+  const profilePressureLevels=[500,400,300,200,150];
   let pointTotal=0,loadedSources=0,airways=0;
-  const pressuresDescending=[...PRESSURES].reverse();
+  const pressuresDescending=[...WINDY_PRESSURES].reverse();
   const clearMap=()=>{
     // Broken/unavailable map layers must not stop the plugin panel from opening.
     for(const layer of [...lines, ...markers]) {
@@ -764,18 +819,6 @@
       offlineStatus='Открыта версия для печати. Нажми «Печать / сохранить PDF», затем выбери сохранение PDF в Safari/iPadOS.';
     } catch(err){offlineStatus='PDF: '+String(err);}
   }
-  function flightLevelChanged(event?:Event):void {
-    const input=event?.currentTarget as HTMLInputElement | undefined;
-    const candidate=Number(input?.value ?? fl);
-    const selected=Number.isFinite(candidate)?Math.max(330,Math.min(390,Math.round(candidate/10)*10)):360;
-    fl=selected;
-    if(input)input.value=String(selected);
-    weatherFL=selected;
-    weather=[];profileOpen=false;activeProfileIndex=0;
-    saveFlightInputs();
-    setWeatherLayer();
-    status=`Маршрутный эшелон FL${selected} сохранён; для обновления профиля загрузите прогноз.`;
-  }
   function formatFlightDuration(distanceNm:number,tasKt:number):string {
     if(!Number.isFinite(distanceNm)||!Number.isFinite(tasKt)||tasKt<=0)return '—';
     const minutes=Math.round(distanceNm/tasKt*60);
@@ -798,25 +841,90 @@
     updateWindyAltitude();
   }
   async function openWeatherProfile():Promise<void> {
+    // Open the panel synchronously on the click, before network I/O or route checks.
+    // Otherwise an invalid FIX or a failed forecast request silently does nothing.
+    if(busy)return;
+    weather=[];
+    profileOpen=true;
+    profileState='loading';
+    profileFeedback='Проверяю маршрут и дату вылета…';
     await analyze();
-    if(weather.length) {profileOpen=true;selectProfilePoint(0);}
+    if(weather.length && profileState==='ready') {
+      try {selectProfilePoint(0);}
+      catch(err) {console.warn('Could not sync map time with first forecast waypoint',err);}
+    }
   }
-  async function analyze():Promise<void>{
-    if(!canExportRoute){status='Прогноз недоступен: '+routeExportWarning;return;}
+  async function analyze():Promise<void> {
+    // The route may have been pasted after its last map rebuild.
+    // Do not fetch using coordinates from a previous OFP.
+    if(!parsed) {
+      try {
+        runRoute();
+        // runRoute clears the previous profile; keep this user-requested panel open.
+        profileOpen=true;
+      }
+      catch(err) {
+        profileState='error';
+        profileFeedback='Не удалось разобрать маршрут: '+String(err);
+        status=profileFeedback;
+        return;
+      }
+    }
+    const currentRoute=parsed;
+    // Read route data directly: the reactive canExportRoute value may not yet have
+    // updated when runRoute() was called within this same click handler.
+    const routeIssue=!currentRoute?'Маршрут не построен':
+      currentRoute.points.length<2?'найдено менее двух точек':
+      currentRoute.gaps.length?`разрывы: ${currentRoute.gaps.map(g=>g.from+'–'+g.to).join(', ')}`:
+      currentRoute.unresolved.length?`неизвестные FIX: ${currentRoute.unresolved.join(', ')}`:
+      currentRoute.airwayNames.length?`неразвёрнутые ATS: ${currentRoute.airwayNames.join(', ')}`:
+      currentRoute.segments.length!==1?'нет непрерывного маршрута':'';
+    if(routeIssue) {
+      profileState='error';
+      profileFeedback='Прогноз не построен: '+routeIssue+'. Открой «Настройки → Диагностика маршрута», исправь неизвестные FIX/разрывы и повтори запрос.';
+      status=profileFeedback;
+      return;
+    }
     const date=departureDate();
-    if(Number.isNaN(date.getTime())||!(Number(tas)>=100 && Number(tas)<=700)){status='Проверьте ETD UTC и TAS (100–700 kt)';return;}
-    busy=true;weather=[];
+    if(Number.isNaN(date.getTime()) || !(Number(tas)>=100 && Number(tas)<=700)) {
+      profileState='error';
+      profileFeedback='Проверь дату и время вылета UTC. TAS должна быть от 100 до 700 kt.';
+      status=profileFeedback;
+      return;
+    }
+    busy=true;
+    weather=[];
+    activeProfileIndex=0;
     try {
-      if(!canExportRoute){status='Прогноз недоступен: '+routeExportWarning;return;}
-      const samples=generateWaypointSamples(parsed.points,date,Number(tas));
-      if(samples.length<2) throw Error('В маршруте недостаточно именованных точек для прогноза');
-      weather=await loadWeather(samples,Number(fl),text=>status=text);
+      const samples=generateWaypointSamples(currentRoute!.points,date,Number(tas));
+      if(samples.length<2)throw Error('Найдено менее двух именованных точек маршрута.');
+      profileFeedback=`Получаю прогноз: ${samples.length} именованных точек…`;
+      weather=await loadWindyWeather(samples,Number(fl),windyApiBaseUrl,text=>{
+        profileFeedback=text;
+        status=text;
+      });
+      if(!weather.length)throw Error('Сервис прогноза не вернул данных по маршруту.');
+      const even=buildRouteProfile(weather,360).recommendations.find(rec=>rec.parity==='even');
+      fl=even?.fl??360; // Weather-only map alignment; NOT an aircraft flight-level selection.
       weatherFL=Number(fl);
-      status=`Прогноз FL300–FL400 получен для ${weather.length} именованных точек (Open-Meteo, ETA приблизительно).`;
-      // Sync Windy timeline to departure time; API may reject out-of-range timestamps.
-      syncWindyTimestamp(date,false);
-    } catch(err) {status='Не удалось получить прогноз: '+String(err);}
-    finally {busy=false;}
+      for(const row of weather){
+        row.atFl=row.flightLevels[weatherFL]??null;
+        row.flPressure=flLevel(weatherFL);
+        row.alerts=[...(row.atFl?.indicators??[])];
+      }
+      profileState='ready';
+      profileFeedback=`Windy GFS: ${weather.length} точек. Метеорологические рекомендации чётного/нечётного эшелона рассчитаны. Нажми на FIX, чтобы выбрать время карты.`;
+      status=profileFeedback;
+      // Windy time synchronisation is useful but must never hide a loaded profile.
+      try {syncWindyTimestamp(date,false);}
+      catch(err) {console.warn('Windy time synchronization failed after forecast load',err);}
+    } catch(err) {
+      weather=[];
+      profileState='error';
+      profileFeedback='Не удалось получить профиль Windy: '+String(err)+'. Проверь Vercel URL, WINDY_POINT_FORECAST_KEY, тариф и ETA; тестовый ключ нельзя использовать для полётов.';
+      status=profileFeedback;
+      console.warn('Flight weather profile request failed',err);
+    } finally {busy=false;}
   }
   function downloadWeather():void {
     if(!weather.length)return;
@@ -859,7 +967,7 @@
   .flightplanner .fr-param-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
   .flightplanner .fr-param-stack {display:grid;grid-template-columns:1fr;gap:10px;}
   .flightplanner .fr-param-stack>div {min-width:0;max-width:100%;}
-  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time,.flightplanner #fr-flight-level {
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {
     box-sizing:border-box;display:block;width:190px;max-width:100%;min-width:0;
     height:39px;padding:7px 8px;font-size:13px;color-scheme:dark;
   }
@@ -898,6 +1006,11 @@
   .flightplanner .twofields {display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
   .flightplanner .flightinputs {display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:8px;align-items:end;}
   .flightplanner .flightinputs input {min-width:0; width:100%; color-scheme:dark;}
+  .flightplanner .fr-profile-feedback {margin:8px 0 10px;font-size:11px;line-height:1.45;overflow-wrap:anywhere;color:#d7e9f8;}
+  .fr-profile-empty {padding:16px 18px;min-height:105px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;color:#e1eaf5;}
+  .fr-profile-empty strong {font-size:14px;}
+  .fr-profile-empty p {margin:0;line-height:1.5;overflow-wrap:anywhere;}
+  .fr-profile-retry {background:#176db7;border:1px solid #519fe3;border-radius:7px;color:white;padding:8px 14px;cursor:pointer;}
   .fr-profile-panel {position:fixed;z-index:8000;bottom:60px;left:0;right:0;
     padding:0;background:#eef2f4;color:#152334;border-top:3px solid #1876d2;
     box-shadow:0 -8px 28px rgba(0,0,0,.48);font:12px/1.35 system-ui,sans-serif;max-height:76vh;overflow:hidden;}
@@ -923,12 +1036,12 @@
   .fr-waypoint-line.fr-waypoint-active {stroke:#a92b28;stroke-width:1.7;opacity:.96;}
   .fr-barb {opacity:.83;pointer-events:none;}
   .fr-component-tail,.fr-component-head {pointer-events:auto;cursor:help;}
-  .fr-component-arrow {fill:none;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;}
+  .fr-component-arrow {fill:none;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round;opacity:.7;}
   .fr-component-amount {font-size:11px;font-weight:800;paint-order:stroke fill;stroke:#f4f5f1;stroke-width:2.3px;stroke-linejoin:round;}
-  .fr-component-tail .fr-component-arrow {stroke:#12834d;}
-  .fr-component-tail .fr-component-amount {fill:#086336;}
-  .fr-component-head .fr-component-arrow {stroke:#c0343d;}
-  .fr-component-head .fr-component-amount {fill:#a52830;}
+  .fr-component-tail .fr-component-arrow {stroke:#69a292;}
+  .fr-component-tail .fr-component-amount {fill:#4b8072;}
+  .fr-component-head .fr-component-arrow {stroke:#c59a93;}
+  .fr-component-head .fr-component-amount {fill:#9e746f;}
   .fr-wind-tail-label {font-weight:800;color:#12834d;}
   .fr-wind-head-label {font-weight:800;color:#bb2f3d;}
   .fr-wind-neutral-label {font-weight:700;color:#5d6c77;}
@@ -939,11 +1052,17 @@
   .fr-legend-cross {color:#64727e;}
   .fr-isa-annotation {fill:#604b47;font-size:11px;font-weight:650;
     paint-order:stroke;stroke:rgba(255,255,255,.75);stroke-width:2.1px;}
-  .fr-selected-fl-line {stroke:#147be7;stroke-width:3;}
-  .fr-selected-fl-dot {stroke:#1374d2;stroke-width:1.6;fill:#fff;}
-  .fr-selected-level-label {font-size:12px;font-weight:700;fill:#fff;}
-  .fr-tropopause-line {fill:none;stroke:#725a42;stroke-width:2.5;
-    stroke-dasharray:7 4;stroke-linejoin:round;}
+  .fr-recommended-fl-line {stroke:#69badd;stroke-width:2.2;opacity:.47;pointer-events:none;}
+  .fr-recommended-fl-odd {stroke:#7ccce2;stroke-dasharray:7 4;opacity:.68;}
+  .fr-isa-contour {stroke:#758a94;stroke-width:.8;stroke-dasharray:3 5;opacity:.55;fill:none;}
+  .fr-isa-contour-label {font-size:10px;fill:#596d75;paint-order:stroke;stroke:rgba(255,255,255,.88);stroke-width:3px;font-weight:650;}
+  .fr-tropopause-band {fill:#e9ecef;stroke:#b9c3ca;stroke-dasharray:2 5;}
+  .fr-tropopause-band-label {fill:#6d5c49;font-size:10px;font-weight:700;}
+  .fr-recommended-inline {display:flex;flex-wrap:wrap;gap:7px;color:#e7f5ff;font-weight:600;font-size:11px;}
+  .fr-recommended-inline span {background:rgba(94,171,212,.18);padding:5px 8px;border-radius:6px;}
+  .fr-profile-recommendation {color:#1b648b;font-weight:650;}
+  .fr-tropopause-line {fill:none;stroke:#806c56;stroke-width:2.1;
+    stroke-dasharray:6 5;stroke-linejoin:round;}
   .fr-tropopause-dot {fill:#725a42;stroke:#f5f2ed;stroke-width:1;}
   .fr-waypoint-target {cursor:pointer;}
   .fr-waypoint-target:focus {outline:none;}
