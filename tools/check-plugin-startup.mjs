@@ -68,13 +68,6 @@ try {
         };
       }
     },
-    './nativePlannerHandoff':{
-      buildNativePlannerHandoff:(_route,etd)=>({
-        departureUtc:etd,timestampMs:Date.parse(etd),
-        params:{coords:[{lat:55.9726,lon:37.4146},{lat:50.0379,lon:8.5622}],view:'ifr'},
-        partial:false,verticesSent:2
-      })
-    },
     './gpxDownload':{
       prepareGpxPayload:(route,options)=>({
         xml:`<gpx>${options.departureUtc}</gpx>`,filename:'route.gpx',partial:false,pointCount:2,routeCount:1
@@ -143,23 +136,7 @@ try {
   assert.equal(vm.runInContext('windyPlannerUrl',sandbox),'','Invalid UTC must not produce a clickable old URL');
   assert.equal(vm.runInContext('windyPlannerNote',sandbox),'Ссылка не сформирована',
     'Only the short error message should be displayed');
-  timeField.value='05:01';
-  await vm.runInContext('openExperimentalNativePlanner()',sandbox,{timeout:2000});
-  assert.equal(currentForecastTimestamp,Date.parse('2026-11-16T05:01:00Z'), 'Store must receive exact UTC minute');
-  assert.equal(plannerRequests.length,1, 'Native planner must receive a request only for the experimental action');
-  assert.equal(plannerRequests[0][0],'rqstOpen');
-  assert.equal(plannerRequests[0][1],'rplanner');
-  assert.equal(plannerRequests[0][2].view,'ifr');
-  assert.equal(plannerRequests[0][2].coords.length,2);
-  assert.equal(redrawListeners.size,0,'Windy redraw listener cleaned up');
-  acceptStoreUpdates=false;
-  timeField.value='05:02';
-  await vm.runInContext('openExperimentalNativePlanner()',sandbox,{timeout:2000});
-  assert.equal(plannerRequests.length,1,'Reject experimental opening if Windy did not accept exact UTC');
-  assert.equal(vm.runInContext('experimentNote',sandbox),'Точное UTC не передано');
-  assert.equal(redrawListeners.size,0,'Do not leak listener on rejected UTC');
-  acceptStoreUpdates=true;
-
+  assert.equal(plannerRequests.length,0,'No internal native planner action should be sent');
   await vm.runInContext('gpxXml="<gpx/>";gpxDownloadHref="blob:test";gpxFileName="route.gpx";sharePlannerGpx()',sandbox,{timeout:2000});
   assert.equal(sharedFiles.length,1,'iPad should receive native share request');
   assert.equal(sharedFiles[0].files[0].name,'route.gpx');
@@ -172,7 +149,7 @@ try {
   assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-13T01:20:00Z</gpx>',
     'Changing UTC fields should regenerate GPX without a new route build');
   assert.equal(vm.runInContext('gpxDownloadHref',sandbox),'blob:new-dated-gpx');
-  console.log('PASS: Svelte startup, hourly URL, experimental store/redraw/rplanner, rejected UTC and GPX share');
+  console.log('PASS: Svelte startup, hourly URL and GPX share (no experimental handoff)');
 }finally{
   rmSync(entry,{force:true});rmSync(temp,{recursive:true,force:true});
 }

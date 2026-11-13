@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 const required=[
   'package.json','rollup.config.js','svelte.config.js','tsconfig.json','.gitignore','LICENSE',
   'src/plugin.svelte','src/pluginConfig.ts','src/navdataConfig.ts','src/navdb.ts',
-  'src/xplane.ts','src/routeGpx.ts','src/gpxDownload.ts','src/windyPlannerUrl.ts','src/nativePlannerHandoff.ts',
+  'src/xplane.ts','src/routeGpx.ts','src/gpxDownload.ts','src/windyPlannerUrl.ts',
   'tools/check-plugin-deps.mjs','tools/check-plugin-exports.mjs','tools/fix-generated-imports.mjs','tools/check-release-tree.mjs',
   'tools/check-plugin-startup.mjs','tools/check-build-config.mjs','tools/verify-release.mjs',
   'tools/build_navdata.py','tools/sync_gdrive_navdata.py','tools/convert_icao_gpkg.py','tools/clean-legacy.mjs',
@@ -11,13 +11,13 @@ const required=[
   '.github/workflows/sync-gdrive-navdata.yml',
   'public/index.html','public/navdata/.gitkeep','navdata-input/README.md',
   'tests/test.mjs','tests/test_xplane.mjs','tests/test_github_snapshot.mjs',
-  'tests/test_route_gpx.mjs','tests/test_gpx_download.mjs','tests/test_windy_planner_url.mjs','tests/test_native_planner_handoff.mjs','tests/test_simplified_ui.mjs',
-  'tests/test_navdata_converter.py','tests/test_release_cleanup.mjs','INSTALL-v1.2.2.md','AUDIT-v1.2.2.md','README.md','НАВИГАЦИОННАЯ-БАЗА-iPad.md'
+  'tests/test_route_gpx.mjs','tests/test_gpx_download.mjs','tests/test_windy_planner_url.mjs','tests/test_simplified_ui.mjs',
+  'tests/test_navdata_converter.py','tests/test_release_cleanup.mjs','INSTALL-v1.2.3.md','AUDIT-v1.2.3.md','README.md','НАВИГАЦИОННАЯ-БАЗА-iPad.md'
 ];
 for(const file of required)assert(existsSync(file),`Required release file missing: ${file}`);
 const pkg=JSON.parse(readFileSync('package.json','utf8'));
 const config=readFileSync('src/pluginConfig.ts','utf8');
-assert.equal(pkg.version,'1.2.2','Release must publish version 1.2.2');
+assert.equal(pkg.version,'1.2.3','Release must publish version 1.2.3');
 assert.equal(config.match(/version:\s*['"]([^'"]+)/)?.[1],pkg.version,'Plugin version mismatch');
 const filesInCode=(p)=>readdirSync(p).filter(n=>!n.startsWith('.'));
 for(const p of ['src','tests','tools']){
@@ -29,7 +29,7 @@ for(const p of ['src','tests','tools']){
 }
 for(const filename of readdirSync('.'))
   assert(!(/^(?:AUDIT|INSTALL)-v\d+\.\d+(?:\.\d+)?(?:-iPad)?\.md$/.test(filename)&&
-    filename!=='AUDIT-v1.2.2.md'&&filename!=='INSTALL-v1.2.2.md'),`Old release document remains: ${filename}`);
+    filename!=='AUDIT-v1.2.3.md'&&filename!=='INSTALL-v1.2.3.md'),`Old release document remains: ${filename}`);
 assert(!existsSync('vercel.json'),'Legacy Vercel configuration remains');
 assert(!existsSync('api'),'Legacy API directory remains');
 const source=readFileSync('src/plugin.svelte','utf8');

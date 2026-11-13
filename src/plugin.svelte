@@ -27,21 +27,19 @@
       </div>
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
-        <button type="button" class="fr-prepare-url" disabled={!parsed} on:click={generateWindyPlannerLink}>1. Сформировать URL (ближайший час)</button>
-        <button type="button" class="fr-prepare-url" disabled={!parsed || experimentBusy} on:click={openExperimentalNativePlanner}>{experimentBusy?'Ожидание обновления Windy…':'2. Точное UTC через API (эксперимент)'}</button>
+        <button type="button" class="fr-prepare-url" disabled={!parsed} on:click={generateWindyPlannerLink}>Сформировать план</button>
       </div>
       {#if windyPlannerUrl}
         <div class="fr-url-preview" role="status" aria-live="polite">
           <p class="fr-url-status">{windyPlannerNote}</p>
           <input id="fr-windy-generated-url" type="text" readonly aria-label="Ссылка Windy" value={windyPlannerUrl} on:focus={selectWindyUrlInput} />
           <div class="fr-export-actions">
-            <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={checkGeneratedLinkFreshness}>Открыть готовую ссылку в Windy</a>
+            <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={checkGeneratedLinkFreshness}>Открыть планировщик</a>
           </div>
         </div>
       {:else if windyPlannerNote}
         <p class="fr-url-error" role="alert">{windyPlannerNote}</p>
       {/if}
-      {#if experimentNote}<p class="fr-experiment-note" role="status">{experimentNote}</p>{/if}
     </section>
   </div>
 
@@ -104,7 +102,6 @@
 
 <script lang="ts">
   import bcast from '@windy/broadcast';
-  import store from '@windy/store';
   import {map} from '@windy/map';
   import {onMount,onDestroy} from 'svelte';
   import config from './pluginConfig';
@@ -112,7 +109,6 @@
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {routeIssues,departureIsoUtc} from './routeGpx';
   import {buildWindyPlannerUrl} from './windyPlannerUrl';
-  import {buildNativePlannerHandoff} from './nativePlannerHandoff';
   import {prepareGpxPayload,createGpxHref,makeGpxShareFile,triggerGpxDownload} from './gpxDownload';
   import type {ParsedRoute} from './navdb';
 
@@ -148,8 +144,6 @@
   let windyPlannerUrl='';
   let windyPlannerNote='';
   let generatedDepartureUtc='';
-  let experimentBusy=false;
-  let experimentNote='';
 
   function saveRoute():void {
     try {localStorage.setItem(SAVED_ROUTE_KEY,routeText);} catch (_err) { /* private mode */ }
@@ -204,7 +198,7 @@
     if(gpxDownloadHref.startsWith('blob:')) {
       try {URL.revokeObjectURL(gpxDownloadHref);} catch (_err) { /* unsupported WebView */ }
     }
-    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';experimentNote='';generatedDepartureUtc='';
+    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';generatedDepartureUtc='';
   }
   function prepareGpxDownload():void {
     clearGpxDownload();
@@ -308,7 +302,7 @@
   function generateWindyPlannerLink():void {
     // The native iPad picker can display a new value before Svelte has
     // propagated bind:value. Always read the actual inputs on this click.
-    windyPlannerUrl='';windyPlannerNote='';experimentNote='';generatedDepartureUtc='';
+    windyPlannerUrl='';windyPlannerNote='';generatedDepartureUtc='';
     try {
       const {date:nextDate,time:nextTime,iso:requestedUtc}=currentDeparture();
       if(!parsed)throw Error('Сначала построй маршрут');
@@ -346,73 +340,6 @@
   }
   function selectWindyUrlInput(event:FocusEvent):void {
     (event.currentTarget as HTMLInputElement).select();
-  }
-  /** Wait for Windy's own weather redraw, but never block the planner indefinitely. */
-  function awaitWeatherRedraw():{promise:Promise<boolean>;cancel:()=>void} {
-    let cleanup=()=>{};
-    const promise=new Promise<boolean>(resolve=>{
-      let done=false;
-      let timeout:ReturnType<typeof setTimeout>|null=null;
-      const listener=()=>finish(true);
-      const finish=(finished:boolean)=>{
-        if(done)return;
-        done=true;
-        if(timeout!==null)clearTimeout(timeout);
-        try {bcast.off('redrawFinished',listener);}catch(_err){}
-        resolve(finished);
-      };
-      cleanup=()=>finish(false);
-      bcast.on('redrawFinished',listener);
-      timeout=setTimeout(()=>finish(false),5000);
-    });
-    return {promise,cancel:()=>cleanup()};
-  }
-
-  async function openExperimentalNativePlanner():Promise<void> {
-    if(experimentBusy)return;
-    experimentBusy=true;
-    experimentNote='Проверка точного UTC…';
-    let wait:{promise:Promise<boolean>;cancel:()=>void}|null=null;
-    try {
-      const {date,time,iso}=currentDeparture();
-      if(!parsed)throw Error('Сначала построй маршрут');
-      const sourceRoute=parsed;
-      const handoff=buildNativePlannerHandoff(sourceRoute,iso);
-      const previousUrl=generatedDepartureUtc===iso?windyPlannerUrl:'';
-      etdDate=date;etdTime=time;
-      saveDeparture();prepareGpxDownload();
-      // Preserve a correctly prepared hourly link so both methods can be compared.
-      if(previousUrl){
-        windyPlannerUrl=previousUrl;
-        generatedDepartureUtc=iso;
-        windyPlannerNote='Ссылка сформирована';
-      }
-      wait=awaitWeatherRedraw(); // Subscribe BEFORE changing the map timestamp.
-      const changed=store.set('timestamp',handoff.timestampMs);
-      const accepted=Number(store.get('timestamp'));
-      if(!Number.isFinite(accepted)||Math.abs(accepted-handoff.timestampMs)>1000){
-        throw Error('Windy отклонил точное UTC либо оно вне диапазона доступного прогноза');
-      }
-      // No redraw is expected if the map already shows the requested UTC.
-      const rendered=changed?await wait.promise:false;
-      if(!changed)wait.cancel();
-      if(parsed!==sourceRoute || currentDeparture().iso!==iso){
-        throw Error('Маршрут или UTC изменились во время обновления карты');
-      }
-      // Internal native route planner event: not a documented ETD import API.
-      bcast.emit('rqstOpen','rplanner',handoff.params);
-      experimentNote='Запрос отправлен. Проверь ETD в Windy.';
-      status=`Эксперимент: карта приняла ${new Date(accepted).toISOString()} `+
-        (rendered?'и сообщила redrawFinished. ':changed?'но не сообщила redrawFinished за 5 секунд. ':'(изменение не потребовалось). ')+
-        `Передано ${handoff.verticesSent} координат; время внутри штатного планировщика не подтверждено. `+
-        (handoff.partial?'Маршрут частичный: передан только непрерывный участок.':'');
-    }catch(err){
-      experimentNote='Точное UTC не передано';
-      status='Эксперимент не выполнен: '+String(err);
-    }finally {
-      wait?.cancel();
-      experimentBusy=false;
-    }
   }
   function downloadGpxFallback():void {
     if(!gpxDownloadHref){gpxFeedback='GPX пока не готов. Сначала построй маршрут.';return;}
@@ -500,10 +427,13 @@
   .flightplanner button {border-radius:8px;min-height:44px;padding:9px 12px;box-sizing:border-box;font:inherit;cursor:pointer;}
   .flightplanner button:disabled {opacity:.55;cursor:not-allowed;}
   .flightplanner .primary {background:#d8ecff;color:#173f5d;border:1px solid #8ea9bd;font-weight:700;}
-  .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:7px;max-width:220px;margin:0 auto 11px;}
+  .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:6px;width:170px;max-width:100%;margin:0 auto 11px;}
   .flightplanner .fr-etd-stack > div {width:100%;min-width:0;text-align:center;}
   .flightplanner .fr-etd-stack label {display:block;text-align:center;font-size:12px;line-height:14px;margin-bottom:2px;}
-  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:40px;min-height:40px;padding:7px 8px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:34px;min-height:34px;padding:4px 6px;text-align:center;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
+  .flightplanner #fr-etd-date::-webkit-datetime-edit,.flightplanner #fr-etd-time::-webkit-datetime-edit {display:flex;flex:1;justify-content:center;align-items:center;text-align:center;min-width:0;}
+  .flightplanner #fr-etd-date::-webkit-datetime-edit-fields-wrapper,.flightplanner #fr-etd-time::-webkit-datetime-edit-fields-wrapper {display:flex;justify-content:center;min-width:0;}
+  .flightplanner #fr-etd-date::-webkit-date-and-time-value,.flightplanner #fr-etd-time::-webkit-date-and-time-value {text-align:center;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
   .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button,.flightplanner .fr-export-actions > a {flex:1 1 160px;text-align:center;}
   .flightplanner .fr-force-handoff,.flightplanner .fr-prepare-url {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}
@@ -512,7 +442,6 @@
   .flightplanner .fr-url-preview .fr-url-status {margin:0 0 9px;line-height:1.45;color:#fff;}
   .flightplanner #fr-windy-generated-url {box-sizing:border-box;width:100%;height:40px;padding:7px 9px;border-radius:6px;border:1px solid #b0b9c1;font-size:12px;background:#fff;color:#1b3445;}
   .flightplanner .fr-url-error {margin:10px 0 0;color:#ffe0ae;font-size:12px;}
-  .flightplanner .fr-experiment-note {margin:10px 0 0;color:#d8ecff;font-size:12px;text-align:center;}
   .flightplanner .fr-feedback {font-size:12px;color:#e7f0f8;margin:11px 0 0;line-height:1.5;}
   .flightplanner .fr-feedback.fr-warning {color:#ffe0ae;}
   .flightplanner .fr-settings {border:1px solid #b7c0c7;border-radius:12px;margin:12px 0;overflow:hidden;background:#f7f9fb;}
