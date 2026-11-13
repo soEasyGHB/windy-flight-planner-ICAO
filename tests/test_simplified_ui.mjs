@@ -60,4 +60,10 @@ assert(main.includes('>2. Открыть готовую ссылку в Windy</a
 assert(!src.includes('anchor.href=link.url'), 'Never modify href in the click event');
 assert(src.includes("document.getElementById('fr-etd-time')"), 'Generate from live input value');
 assert(src.includes('const link=buildWindyPlannerUrl(parsed,requestedUtc)'), 'Build URL synchronously on explicit generate click');
+assert(src.includes("windyPlannerNote='Ссылка сформирована'"), 'Success status must be concise');
+assert(src.includes("windyPlannerNote='Ссылка не сформирована'"), 'Failure status must be concise');
+assert(!main.includes('В URL Windy:'), 'Remove verbose UTC time comparison from preview');
+assert(!main.includes('Готовая ссылка (можно проверить или скопировать)'), 'Remove verbose link caption');
+assert(main.includes('aria-label="Ссылка Windy"'), 'Generated URL input remains accessible');
+assert(!main.includes('3-часового слота'), 'Remove slot warning from preview');
 console.log('PASS: compact UTC inputs, taller route field, GPX + working IFR URL, no empty planner button');

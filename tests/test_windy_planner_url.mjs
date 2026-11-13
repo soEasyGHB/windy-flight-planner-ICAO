@@ -9,22 +9,26 @@ const route=parseNamedFixRoute('UUEE24C DCT UNNT25');
 const exact=buildWindyPlannerUrl(route,'2026-11-16T18:00:00Z');
 assert.equal(exact.url,
   'https://www.windy.com/route-planner/ifr/55.9726,37.4146;55.0126,82.6507?2026-11-16-18',
-  'Must match the route-planner/ifr URL which was actually confirmed by the user');
+  'Keep confirmed route coordinates while carrying exact minutes experimentally');
 assert.equal(exact.urlTimeUtc,'2026-11-16-18');
-assert.equal(exact.roundedTime,false);
+assert.equal(exact.experimentalTime,false);
 assert.equal(exact.partial,false);
 assert.equal(exact.from,'UUEE');
 assert.equal(exact.to,'UNNT');
 assert.equal(exact.pointsSent,2);
 
-const roundDown=buildWindyPlannerUrl(route,'2026-11-16T18:20:00Z');
-assert.equal(roundDown.urlTimeUtc,'2026-11-16-18');
-assert.equal(roundDown.roundedTime,true);
-assert.equal(roundDown.requestedDepartureUtc,'2026-11-16T18:20:00Z');
-const roundUp=buildWindyPlannerUrl(route,'2026-11-16T20:00:00Z');
-assert.equal(roundUp.urlTimeUtc,'2026-11-16-21');
-const midnight=buildWindyPlannerUrl(route,'2026-11-16T23:50:00Z');
-assert.equal(midnight.urlTimeUtc,'2026-11-17-00');
+const minute=buildWindyPlannerUrl(route,'2026-11-16T05:01:00Z');
+assert.equal(minute.urlTimeUtc,'2026-11-16-05:01');
+assert.equal(minute.experimentalTime,true);
+assert(minute.url.endsWith('?2026-11-16-05:01'),'Never round 05:01 UTC to a forecast slot');
+assert.equal(minute.requestedDepartureUtc,'2026-11-16T05:01:00Z');
+const after=buildWindyPlannerUrl(route,'2026-11-16T18:20:00Z');
+assert.equal(after.urlTimeUtc,'2026-11-16-18:20');
+const preMidnight=buildWindyPlannerUrl(route,'2026-11-16T23:50:00Z');
+assert.equal(preMidnight.urlTimeUtc,'2026-11-16-23:50');
+const zeroMinute=buildWindyPlannerUrl(route,'2026-11-16T20:00:00Z');
+assert.equal(zeroMinute.urlTimeUtc,'2026-11-16-20:00');
+assert.equal(zeroMinute.experimentalTime,true);
 assert.throws(()=>buildWindyPlannerUrl(route,'2026-02-30T10:00:00Z'),/UTC/);
 assert.throws(()=>buildWindyPlannerUrl(route,'2026-11-16T18:00:00+03:00'),/UTC/);
 
@@ -37,4 +41,4 @@ assert(!link.url.includes('undefined'));
 const selected=partial.segments.find(s=>s.length===link.pointsSent && s[0].ident===link.from && s.at(-1).ident===link.to);
 assert(selected,'A partial route must use only a real, continuous, verified segment');
 assert.throws(()=>buildWindyPlannerUrl(parseNamedFixRoute('UNKNOWNONE DCT UNKNOWNTWO'),'2026-11-16T18:00:00Z'),/подтверждённого/);
-console.log('PASS: confirmed IFR URL, exact 18:00 UTC, 3-hour rounding, date rollover, partial route continuity and invalid input');
+console.log('PASS: experimental minute-accurate URL with no rounding, partial-route continuity and input validation');

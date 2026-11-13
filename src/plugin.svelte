@@ -32,8 +32,7 @@
       {#if windyPlannerUrl}
         <div class="fr-url-preview" role="status" aria-live="polite">
           <p class="fr-url-status">{windyPlannerNote}</p>
-          <label for="fr-windy-generated-url">Готовая ссылка (можно проверить или скопировать)</label>
-          <input id="fr-windy-generated-url" type="text" readonly value={windyPlannerUrl} on:focus={selectWindyUrlInput} />
+          <input id="fr-windy-generated-url" type="text" readonly aria-label="Ссылка Windy" value={windyPlannerUrl} on:focus={selectWindyUrlInput} />
           <div class="fr-export-actions">
             <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={checkGeneratedLinkFreshness}>2. Открыть готовую ссылку в Windy</a>
             <button type="button" on:click={copyWindyPlannerLink}>Скопировать URL</button>
@@ -59,9 +58,6 @@
           {#if showDiagnostics}
             <p class:fr-warning={gpxIsPartial} class="fr-feedback" role="status" aria-live="polite">{gpxFeedback}</p>
             <p class="fr-info" role="status" aria-live="polite">{status}</p>
-            {#if windyPlannerNote}
-              <p class:fr-warning={windyPlannerPartial} class="fr-small">{windyPlannerNote}</p>
-            {/if}
             {#if parsed}
               <p class="fr-small">Точек: {parsed.points.length}; подтверждённая длина: {Math.round(parsed.distanceNm)} NM; подписей: {labeledCount}.</p>
               {#each routeIssues(parsed) as issue}
@@ -151,7 +147,6 @@
   let windyPlannerNote='';
   let generatedDepartureUtc='';
   let windyCopyFeedback='';
-  let windyPlannerPartial=false;
 
   function saveRoute():void {
     try {localStorage.setItem(SAVED_ROUTE_KEY,routeText);} catch (_err) { /* private mode */ }
@@ -206,7 +201,7 @@
     if(gpxDownloadHref.startsWith('blob:')) {
       try {URL.revokeObjectURL(gpxDownloadHref);} catch (_err) { /* unsupported WebView */ }
     }
-    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';windyPlannerPartial=false;windyCopyFeedback='';generatedDepartureUtc='';
+    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';windyCopyFeedback='';generatedDepartureUtc='';
   }
   function prepareGpxDownload():void {
     clearGpxDownload();
@@ -302,7 +297,7 @@
   function generateWindyPlannerLink():void {
     // The native iPad picker can display a new value before Svelte has
     // propagated bind:value. Always read the actual inputs on this click.
-    windyPlannerUrl='';windyPlannerNote='';windyPlannerPartial=false;windyCopyFeedback='';generatedDepartureUtc='';
+    windyPlannerUrl='';windyPlannerNote='';windyCopyFeedback='';generatedDepartureUtc='';
     try {
       const dateField=typeof document==='undefined'?null:document.getElementById('fr-etd-date') as HTMLInputElement|null;
       const timeField=typeof document==='undefined'?null:document.getElementById('fr-etd-time') as HTMLInputElement|null;
@@ -317,17 +312,16 @@
       const link=buildWindyPlannerUrl(parsed,requestedUtc);
       windyPlannerUrl=link.url;
       generatedDepartureUtc=requestedUtc;
-      windyPlannerPartial=link.partial;
-      const selected=`${nextDate} ${nextTime} UTC`;
-      const urlSlot=`${link.urlTimeUtc.slice(0,10)} ${link.urlTimeUtc.slice(11)}:00 UTC`;
-      windyPlannerNote=`Выбрано: ${selected}. В URL Windy: ${urlSlot}. Точек: ${link.pointsSent} (${link.from} → ${link.to}).`+
-        (link.roundedTime?' Время URL округлено до ближайшего 3-часового слота; в GPX сохранено точное время.':'')+
-        (link.partial?' Маршрут неполный — передан только самый длинный подтверждённый участок.':'');
-      status='Ссылка Windy сформирована с UTC '+urlSlot+'. Проверь значение и нажми «Открыть готовую ссылку». ';
+      windyPlannerNote='Ссылка сформирована';
+      status=link.partial
+        ? 'Ссылка сформирована. Взята только самая длинная подтверждённая часть маршрута; проверь разрывы в настройках.'
+        : link.experimentalTime
+          ? 'Ссылка сформирована. Точное UTC включено в URL как экспериментальный параметр; Windy может проигнорировать минуты.'
+          : 'Ссылка сформирована с документированным трёхчасовым временем Windy.';
     }catch(err) {
       windyPlannerUrl='';generatedDepartureUtc='';
-      windyPlannerNote='Не удалось сформировать ссылку: '+String(err);
-      status=windyPlannerNote;
+      windyPlannerNote='Ссылка не сформирована';
+      status='Не удалось сформировать ссылку: '+String(err);
     }
   }
   function checkGeneratedLinkFreshness(event:MouseEvent):void {
@@ -341,8 +335,8 @@
     }catch(err) {
       event.preventDefault();
       windyPlannerUrl='';generatedDepartureUtc='';
-      windyPlannerNote='Ссылка устарела. Нажми «1. Сформировать ссылку с UTC» ещё раз. '+String(err);
-      status=windyPlannerNote;
+      windyPlannerNote='Ссылка не сформирована';
+      status='Ссылка устарела. Нажми «1. Сформировать ссылку с UTC» ещё раз. '+String(err);
     }
   }
   function selectWindyUrlInput(event:FocusEvent):void {

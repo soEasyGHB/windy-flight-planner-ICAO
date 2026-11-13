@@ -43,11 +43,13 @@ try {
     './windyPlannerUrl':{
       buildWindyPlannerUrl: (_route,etd)=>{
         urlRequests.push(etd);
-        const bucket=new Date(Math.round(Date.parse(etd)/(3*60*60*1000))*(3*60*60*1000))
-          .toISOString().slice(0,13).replace('T','-');
+        const hour=Number(etd.slice(11,13));
+        const minute=Number(etd.slice(14,16));
+        const experimental=minute!==0||hour%3!==0;
+        const exact=etd.slice(0,experimental?16:13).replace('T','-');
         return {
-          url:`https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?${bucket}`,
-          requestedDepartureUtc:etd,urlTimeUtc:bucket,roundedTime:true,
+          url:`https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?${exact}`,
+          requestedDepartureUtc:etd,urlTimeUtc:exact,experimentalTime:experimental,
           partial:false,pointsSent:2,from:'UUEE',to:'EDDF'
         };
       }
@@ -82,13 +84,13 @@ try {
   const timeField={id:'fr-etd-time',value:'18:20'};
   sandbox.document={getElementById:id=>id==='fr-etd-date'?dateField:id==='fr-etd-time'?timeField:null};
   vm.runInContext('generateWindyPlannerLink()',sandbox,{timeout:2000});
-  const userTestedUrl='https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-16-18';
+  const userTestedUrl='https://www.windy.com/route-planner/ifr/55.9726,37.4146;50.0379,8.5622?2026-11-16-18:20';
   assert.equal(vm.runInContext('windyPlannerUrl',sandbox),userTestedUrl);
   assert.equal(urlRequests.at(-1),'2026-11-16T18:20:00Z');
   assert.equal(vm.runInContext('etdTime',sandbox),'18:20');
   assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-16T18:20:00Z</gpx>');
-  assert(vm.runInContext('windyPlannerNote',sandbox).includes('18:00 UTC'),
-    'Show the effective three-hour Windy UTC slot');
+  assert.equal(vm.runInContext('windyPlannerNote',sandbox),'Ссылка сформирована',
+    'Only the short success message should be displayed');
   // Native iPad picker may not have sent an input/change event before the
   // user taps the existing link. Block stale navigation, do not modify href.
   const click={prevented:false,preventDefault(){this.prevented=true;}};
@@ -118,8 +120,8 @@ try {
   timeField.value='invalid-time';
   vm.runInContext('generateWindyPlannerLink()',sandbox,{timeout:2000});
   assert.equal(vm.runInContext('windyPlannerUrl',sandbox),'','Invalid UTC must not produce a clickable old URL');
-  assert(vm.runInContext('windyPlannerNote',sandbox).includes('Не удалось сформировать'),
-    'Show a clear validation error');
+  assert.equal(vm.runInContext('windyPlannerNote',sandbox),'Ссылка не сформирована',
+    'Only the short error message should be displayed');
   timeField.value='18:20';
   assert.equal(plannerRequests.length,0,'Use URL, not failed Windy internal event');
 
@@ -135,7 +137,7 @@ try {
   assert.equal(vm.runInContext('gpxXml',sandbox),'<gpx>2026-11-13T01:20:00Z</gpx>',
     'Changing UTC fields should regenerate GPX without a new route build');
   assert.equal(vm.runInContext('gpxDownloadHref',sandbox),'blob:new-dated-gpx');
-  console.log('PASS: Svelte startup, explicit UTC generation, stale-link invalidation, GPX share, verified IFR URL');
+  console.log('PASS: Svelte startup, exact minute URL, concise status, stale-link invalidation and GPX share');
 }finally{
   rmSync(entry,{force:true});rmSync(temp,{recursive:true,force:true});
 }
