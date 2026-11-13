@@ -27,21 +27,21 @@
       </div>
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
-        <button type="button" class="fr-prepare-url" disabled={!parsed} on:click={generateWindyPlannerLink}>1. Сформировать ссылку с UTC</button>
+        <button type="button" class="fr-prepare-url" disabled={!parsed} on:click={generateWindyPlannerLink}>1. Сформировать URL (ближайший час)</button>
+        <button type="button" class="fr-prepare-url" disabled={!parsed || experimentBusy} on:click={openExperimentalNativePlanner}>{experimentBusy?'Ожидание обновления Windy…':'2. Точное UTC через API (эксперимент)'}</button>
       </div>
       {#if windyPlannerUrl}
         <div class="fr-url-preview" role="status" aria-live="polite">
           <p class="fr-url-status">{windyPlannerNote}</p>
           <input id="fr-windy-generated-url" type="text" readonly aria-label="Ссылка Windy" value={windyPlannerUrl} on:focus={selectWindyUrlInput} />
           <div class="fr-export-actions">
-            <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={checkGeneratedLinkFreshness}>2. Открыть готовую ссылку в Windy</a>
-            <button type="button" on:click={copyWindyPlannerLink}>Скопировать URL</button>
+            <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={checkGeneratedLinkFreshness}>Открыть готовую ссылку в Windy</a>
           </div>
-          {#if windyCopyFeedback}<p class="fr-url-copy-feedback" role="status">{windyCopyFeedback}</p>{/if}
         </div>
       {:else if windyPlannerNote}
         <p class="fr-url-error" role="alert">{windyPlannerNote}</p>
       {/if}
+      {#if experimentNote}<p class="fr-experiment-note" role="status">{experimentNote}</p>{/if}
     </section>
   </div>
 
@@ -104,6 +104,7 @@
 
 <script lang="ts">
   import bcast from '@windy/broadcast';
+  import store from '@windy/store';
   import {map} from '@windy/map';
   import {onMount,onDestroy} from 'svelte';
   import config from './pluginConfig';
@@ -111,6 +112,7 @@
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {routeIssues,departureIsoUtc} from './routeGpx';
   import {buildWindyPlannerUrl} from './windyPlannerUrl';
+  import {buildNativePlannerHandoff} from './nativePlannerHandoff';
   import {prepareGpxPayload,createGpxHref,makeGpxShareFile,triggerGpxDownload} from './gpxDownload';
   import type {ParsedRoute} from './navdb';
 
@@ -146,7 +148,8 @@
   let windyPlannerUrl='';
   let windyPlannerNote='';
   let generatedDepartureUtc='';
-  let windyCopyFeedback='';
+  let experimentBusy=false;
+  let experimentNote='';
 
   function saveRoute():void {
     try {localStorage.setItem(SAVED_ROUTE_KEY,routeText);} catch (_err) { /* private mode */ }
@@ -201,7 +204,7 @@
     if(gpxDownloadHref.startsWith('blob:')) {
       try {URL.revokeObjectURL(gpxDownloadHref);} catch (_err) { /* unsupported WebView */ }
     }
-    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';windyCopyFeedback='';generatedDepartureUtc='';
+    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';experimentNote='';generatedDepartureUtc='';
   }
   function prepareGpxDownload():void {
     clearGpxDownload();
@@ -294,16 +297,20 @@
     const issues=routeIssues(parsed);
     status=`Маршрут: ${parsed.points.length} точек, ${Math.round(parsed.distanceNm)} NM по подтверждённым отрезкам. ${issues.length?`Предупреждений: ${issues.length}.`:'Разрывов не обнаружено.'}`;
   }
+  function currentDeparture():{date:string;time:string;iso:string} {
+    const dateField=typeof document==='undefined'?null:document.getElementById('fr-etd-date') as HTMLInputElement|null;
+    const timeField=typeof document==='undefined'?null:document.getElementById('fr-etd-time') as HTMLInputElement|null;
+    const date=dateField?.value??etdDate;
+    const time=timeField?.value??etdTime;
+    return {date,time,iso:departureIsoUtc(date,time)};
+  }
+
   function generateWindyPlannerLink():void {
     // The native iPad picker can display a new value before Svelte has
     // propagated bind:value. Always read the actual inputs on this click.
-    windyPlannerUrl='';windyPlannerNote='';windyCopyFeedback='';generatedDepartureUtc='';
+    windyPlannerUrl='';windyPlannerNote='';experimentNote='';generatedDepartureUtc='';
     try {
-      const dateField=typeof document==='undefined'?null:document.getElementById('fr-etd-date') as HTMLInputElement|null;
-      const timeField=typeof document==='undefined'?null:document.getElementById('fr-etd-time') as HTMLInputElement|null;
-      const nextDate=dateField?.value??etdDate;
-      const nextTime=timeField?.value??etdTime;
-      const requestedUtc=departureIsoUtc(nextDate,nextTime);
+      const {date:nextDate,time:nextTime,iso:requestedUtc}=currentDeparture();
       if(!parsed)throw Error('Сначала построй маршрут');
       // Synchronize ETD and the GPX, THEN create an independent URL preview.
       etdDate=nextDate;etdTime=nextTime;
@@ -313,11 +320,9 @@
       windyPlannerUrl=link.url;
       generatedDepartureUtc=requestedUtc;
       windyPlannerNote='Ссылка сформирована';
-      status=link.partial
-        ? 'Ссылка сформирована. Взята только самая длинная подтверждённая часть маршрута; проверь разрывы в настройках.'
-        : link.experimentalTime
-          ? 'Ссылка сформирована. Точное UTC включено в URL как экспериментальный параметр; Windy может проигнорировать минуты.'
-          : 'Ссылка сформирована с документированным трёхчасовым временем Windy.';
+      status=`URL: выбрано ${requestedUtc}; передано ${link.urlTimeUtc} (ближайший полный час). `+
+        (link.outsideDocumentedSlot?'Windy документирует только трёхчасовые слоты: этот час может быть проигнорирован. ':'')+
+        (link.partial?'ВНИМАНИЕ: передан только самый длинный подтверждённый участок.':'');
     }catch(err) {
       windyPlannerUrl='';generatedDepartureUtc='';
       windyPlannerNote='Ссылка не сформирована';
@@ -336,28 +341,77 @@
       event.preventDefault();
       windyPlannerUrl='';generatedDepartureUtc='';
       windyPlannerNote='Ссылка не сформирована';
-      status='Ссылка устарела. Нажми «1. Сформировать ссылку с UTC» ещё раз. '+String(err);
+      status='Ссылка устарела. Сформируй URL заново. '+String(err);
     }
   }
   function selectWindyUrlInput(event:FocusEvent):void {
     (event.currentTarget as HTMLInputElement).select();
   }
-  async function copyWindyPlannerLink():Promise<void> {
-    if(!windyPlannerUrl)return;
+  /** Wait for Windy's own weather redraw, but never block the planner indefinitely. */
+  function awaitWeatherRedraw():{promise:Promise<boolean>;cancel:()=>void} {
+    let cleanup=()=>{};
+    const promise=new Promise<boolean>(resolve=>{
+      let done=false;
+      let timeout:ReturnType<typeof setTimeout>|null=null;
+      const listener=()=>finish(true);
+      const finish=(finished:boolean)=>{
+        if(done)return;
+        done=true;
+        if(timeout!==null)clearTimeout(timeout);
+        try {bcast.off('redrawFinished',listener);}catch(_err){}
+        resolve(finished);
+      };
+      cleanup=()=>finish(false);
+      bcast.on('redrawFinished',listener);
+      timeout=setTimeout(()=>finish(false),5000);
+    });
+    return {promise,cancel:()=>cleanup()};
+  }
+
+  async function openExperimentalNativePlanner():Promise<void> {
+    if(experimentBusy)return;
+    experimentBusy=true;
+    experimentNote='Проверка точного UTC…';
+    let wait:{promise:Promise<boolean>;cancel:()=>void}|null=null;
     try {
-      if(navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(windyPlannerUrl);
-      }else{
-        const input=document.getElementById('fr-windy-generated-url') as HTMLInputElement|null;
-        if(!input)throw Error('Поле ссылки недоступно');
-        input.focus();input.select();
-        if(!document.execCommand('copy'))throw Error('Автоматическое копирование недоступно');
+      const {date,time,iso}=currentDeparture();
+      if(!parsed)throw Error('Сначала построй маршрут');
+      const sourceRoute=parsed;
+      const handoff=buildNativePlannerHandoff(sourceRoute,iso);
+      const previousUrl=generatedDepartureUtc===iso?windyPlannerUrl:'';
+      etdDate=date;etdTime=time;
+      saveDeparture();prepareGpxDownload();
+      // Preserve a correctly prepared hourly link so both methods can be compared.
+      if(previousUrl){
+        windyPlannerUrl=previousUrl;
+        generatedDepartureUtc=iso;
+        windyPlannerNote='Ссылка сформирована';
       }
-      windyCopyFeedback='Ссылка скопирована. Вставь её в адресную строку Safari для проверки.';
-      status=windyCopyFeedback;
-    }catch(err) {
-      windyCopyFeedback='Копирование недоступно. Нажми на поле ссылки и скопируй текст вручную.';
-      status='Не удалось автоматически скопировать URL: '+String(err); 
+      wait=awaitWeatherRedraw(); // Subscribe BEFORE changing the map timestamp.
+      const changed=store.set('timestamp',handoff.timestampMs);
+      const accepted=Number(store.get('timestamp'));
+      if(!Number.isFinite(accepted)||Math.abs(accepted-handoff.timestampMs)>1000){
+        throw Error('Windy отклонил точное UTC либо оно вне диапазона доступного прогноза');
+      }
+      // No redraw is expected if the map already shows the requested UTC.
+      const rendered=changed?await wait.promise:false;
+      if(!changed)wait.cancel();
+      if(parsed!==sourceRoute || currentDeparture().iso!==iso){
+        throw Error('Маршрут или UTC изменились во время обновления карты');
+      }
+      // Internal native route planner event: not a documented ETD import API.
+      bcast.emit('rqstOpen','rplanner',handoff.params);
+      experimentNote='Запрос отправлен. Проверь ETD в Windy.';
+      status=`Эксперимент: карта приняла ${new Date(accepted).toISOString()} `+
+        (rendered?'и сообщила redrawFinished. ':changed?'но не сообщила redrawFinished за 5 секунд. ':'(изменение не потребовалось). ')+
+        `Передано ${handoff.verticesSent} координат; время внутри штатного планировщика не подтверждено. `+
+        (handoff.partial?'Маршрут частичный: передан только непрерывный участок.':'');
+    }catch(err){
+      experimentNote='Точное UTC не передано';
+      status='Эксперимент не выполнен: '+String(err);
+    }finally {
+      wait?.cancel();
+      experimentBusy=false;
     }
   }
   function downloadGpxFallback():void {
@@ -458,7 +512,7 @@
   .flightplanner .fr-url-preview .fr-url-status {margin:0 0 9px;line-height:1.45;color:#fff;}
   .flightplanner #fr-windy-generated-url {box-sizing:border-box;width:100%;height:40px;padding:7px 9px;border-radius:6px;border:1px solid #b0b9c1;font-size:12px;background:#fff;color:#1b3445;}
   .flightplanner .fr-url-error {margin:10px 0 0;color:#ffe0ae;font-size:12px;}
-  .flightplanner .fr-url-copy-feedback {margin:8px 0 0;font-size:12px;color:#d8ecff;}
+  .flightplanner .fr-experiment-note {margin:10px 0 0;color:#d8ecff;font-size:12px;text-align:center;}
   .flightplanner .fr-feedback {font-size:12px;color:#e7f0f8;margin:11px 0 0;line-height:1.5;}
   .flightplanner .fr-feedback.fr-warning {color:#ffe0ae;}
   .flightplanner .fr-settings {border:1px solid #b7c0c7;border-radius:12px;margin:12px 0;overflow:hidden;background:#f7f9fb;}

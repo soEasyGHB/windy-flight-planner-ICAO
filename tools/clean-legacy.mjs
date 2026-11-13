@@ -1,4 +1,4 @@
-/** Replace obsolete project files with the v1.2.1 release tree.
+/** Replace obsolete project files with the v1.2.2 release tree.
  * Only project-code/workflow paths and versioned release files are touched.
  * AIRAC/navdata-input, public/navdata snapshots, .git, and user documents are preserved.
  * Usage: node tools/clean-legacy.mjs [--dry-run]
@@ -8,13 +8,13 @@ import {join,relative} from 'node:path';
 
 const dryRun=process.argv.includes('--dry-run');
 const version=JSON.parse(readFileSync('package.json','utf8')).version;
-if(version!=='1.2.1') throw Error(`Refusing to clean using the wrong release: ${version}`);
+if(version!=='1.2.2') throw Error(`Refusing to clean using the wrong release: ${version}`);
 const canonical=new Set([
   'src/plugin.svelte','src/pluginConfig.ts','src/navdataConfig.ts','src/navdb.ts',
-  'src/xplane.ts','src/routeGpx.ts','src/gpxDownload.ts','src/windyPlannerUrl.ts',
+  'src/xplane.ts','src/routeGpx.ts','src/gpxDownload.ts','src/windyPlannerUrl.ts','src/nativePlannerHandoff.ts',
   'tests/test.mjs','tests/test_xplane.mjs','tests/test_github_snapshot.mjs',
   'tests/test_route_gpx.mjs','tests/test_gpx_download.mjs',
-  'tests/test_windy_planner_url.mjs','tests/test_simplified_ui.mjs',
+  'tests/test_windy_planner_url.mjs','tests/test_native_planner_handoff.mjs','tests/test_simplified_ui.mjs',
   'tests/test_navdata_converter.py','tests/test_release_cleanup.mjs',
   'tools/build_navdata.py','tools/sync_gdrive_navdata.py','tools/convert_icao_gpkg.py',
   'tools/check-plugin-deps.mjs','tools/check-plugin-exports.mjs',
@@ -25,7 +25,7 @@ const canonical=new Set([
   '.github/workflows/sync-gdrive-navdata.yml','public/index.html'
 ]);
 const obsoleteRoot=/^(?:AUDIT|INSTALL)-v\d+\.\d+(?:\.\d+)?(?:-iPad)?\.md$|^Windy-Flight-Route-Analyzer-FULL-v[\d.]+\.(?:zip|sha256)$|^vercel\.json$/;
-const keepRoot=new Set([`AUDIT-v1.2.1.md`,`INSTALL-v1.2.1.md`]);
+const keepRoot=new Set([`AUDIT-v1.2.2.md`,`INSTALL-v1.2.2.md`]);
 let removed=0;
 function removeFile(path){
   if(dryRun) console.log('Would remove:',path);
