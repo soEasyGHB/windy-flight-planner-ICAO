@@ -1,8 +1,8 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "1.2.3",
+  "version": "2.0.1",
   "type": "module",
-  "description": "ICAO route, named GPX export and nearest-hour Windy IFR planner URL",
+  "description": "OFP/ICAO routes, named GPX export, and Windy IFR planner URL with AIRAC database checks",
   "main": "dist/plugin.min.js",
   "scripts": {
     "start": "rollup -w -c",

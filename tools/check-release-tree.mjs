@@ -12,12 +12,12 @@ const required=[
   'public/index.html','public/navdata/.gitkeep','navdata-input/README.md',
   'tests/test.mjs','tests/test_xplane.mjs','tests/test_github_snapshot.mjs',
   'tests/test_route_gpx.mjs','tests/test_gpx_download.mjs','tests/test_windy_planner_url.mjs','tests/test_simplified_ui.mjs',
-  'tests/test_navdata_converter.py','tests/test_release_cleanup.mjs','INSTALL-v1.2.3.md','AUDIT-v1.2.3.md','README.md','НАВИГАЦИОННАЯ-БАЗА-iPad.md'
+  'tests/test_navdata_converter.py','tests/test_release_cleanup.mjs','INSTALL-v2.0.1.md','AUDIT-v2.0.1.md','README.md','НАВИГАЦИОННАЯ-БАЗА-iPad.md'
 ];
 for(const file of required)assert(existsSync(file),`Required release file missing: ${file}`);
 const pkg=JSON.parse(readFileSync('package.json','utf8'));
 const config=readFileSync('src/pluginConfig.ts','utf8');
-assert.equal(pkg.version,'1.2.3','Release must publish version 1.2.3');
+assert.equal(pkg.version,'2.0.1','Release must publish version 2.0.1');
 assert.equal(config.match(/version:\s*['"]([^'"]+)/)?.[1],pkg.version,'Plugin version mismatch');
 const filesInCode=(p)=>readdirSync(p).filter(n=>!n.startsWith('.'));
 for(const p of ['src','tests','tools']){
@@ -29,7 +29,7 @@ for(const p of ['src','tests','tools']){
 }
 for(const filename of readdirSync('.'))
   assert(!(/^(?:AUDIT|INSTALL)-v\d+\.\d+(?:\.\d+)?(?:-iPad)?\.md$/.test(filename)&&
-    filename!=='AUDIT-v1.2.3.md'&&filename!=='INSTALL-v1.2.3.md'),`Old release document remains: ${filename}`);
+    filename!=='AUDIT-v2.0.1.md'&&filename!=='INSTALL-v2.0.1.md'),`Old release document remains: ${filename}`);
 assert(!existsSync('vercel.json'),'Legacy Vercel configuration remains');
 assert(!existsSync('api'),'Legacy API directory remains');
 const source=readFileSync('src/plugin.svelte','utf8');

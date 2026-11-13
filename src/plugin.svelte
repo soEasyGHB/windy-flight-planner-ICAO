@@ -5,7 +5,7 @@
   <div class="fr-main-stack">
     <section class="fr-card" aria-labelledby="fr-section-route">
       <h3 id="fr-section-route">Ввод маршрута</h3>
-      <label for="fr-route-input">Маршрут OFP / ICAO</label>
+      <label for="fr-route-input">Маршрут из OFP</label>
       <textarea id="fr-route-input" bind:value={routeText} on:input={routeInputChanged} rows="8" spellcheck="false" placeholder="EHAM DCT EDDF DCT LTFM DCT OMDB"></textarea>
       <div class="fr-buttons">
         <button type="button" class="primary" on:click={runRoute}>Построить маршрут</button>
@@ -68,7 +68,7 @@
                 <summary>Координаты распознанных точек ({parsed.points.length})</summary>
                 <div class="fr-scrolltable"><table><thead><tr><th>FIX</th><th>Широта</th><th>Долгота</th><th>Источник</th></tr></thead><tbody>
                   {#each parsed.points as point}
-                    <tr><td>{point.ident}</td><td>{point.lat.toFixed(4)}</td><td>{point.lon.toFixed(4)}</td><td>{point.source}</td></tr>
+                    <tr><td>{point.ident}</td><td>{point.lat.toFixed(4)}</td><td>{point.lon.toFixed(4)}</td><td>{visiblePointSource(point.source)}</td></tr>
                   {/each}
                 </tbody></table></div>
               </details>
@@ -81,19 +81,18 @@
       <details class="fr-settings-group">
         <summary>Навигационные базы данных</summary>
         <div class="fr-settings-body">
-          <p class="fr-small">Источник: <a href={repoUrl} target="_blank" rel="noopener noreferrer">публичный GitHub-репозиторий</a>. Файлы <code>earth_fix.dat</code>, <code>earth_nav.dat</code>, <code>earth_awy.dat</code> одного AIRAC можно обновлять через синхронизацию Google Drive.</p>
+          <p class="fr-small">Для обновления AIRAC открой папку Google Drive <a href="https://drive.google.com/drive/folders/14eS_Ir19Uv7FPc2cVZWBR6_yKBvGTu5C" target="_blank" rel="noopener noreferrer">Windy-NAVDATA</a>.</p>
+          <p class="fr-small">В архиве <code>navdata.zip</code> замени файлы <code>earth_fix.dat</code>, <code>earth_nav.dat</code> и <code>earth_awy.dat</code> данными <strong>одного цикла AIRAC</strong>. Загрузи обновлённый <code>navdata.zip</code> в эту же папку вместо прежнего.</p>
+          <p class="fr-small">После обновления опубликованной базы нажми «Проверить базу данных». Используй только навигационные данные, на распространение которых есть разрешение.</p>
           <div class="fr-buttons fr-db-actions">
-            <button type="button" on:click={openSyncWorkflow}>Синхронизация Google Drive</button>
-            <button type="button" on:click={openGitHubUpload}>Загрузить базу через GitHub</button>
-            <button type="button" class="primary" disabled={busy} on:click={updateHosted}>{busy?'Проверка базы…':'Проверить новую базу'}</button>
+            <button type="button" class="primary" disabled={busy} on:click={updateHosted}>{busy?'Проверка базы…':'Проверить базу данных'}</button>
           </div>
           {#if githubCycle}
             <p class="fr-info">AIRAC {githubCycle}; обновлено {githubGenerated || 'неизвестно'}; точек {githubPoints.toLocaleString('ru-RU')}; вершин трасс {githubVertices.toLocaleString('ru-RU')}.</p>
           {:else if showDiagnostics}
-            <p class="fr-warning">Опубликованная база GitHub пока не загружена. Доступны только встроенные и дополнительные открытые источники.</p>
+            <p class="fr-warning">Актуальная база пока не загружена. Доступны встроенные и дополнительные открытые источники.</p>
           {/if}
           <p class="fr-small">Загружено точек: {pointTotal.toLocaleString('ru-RU')}; трасс: {airways}; дополнительных источников: {loadedSources}/3. Навигационная база предназначена для визуализации, не для IFR-навигации.</p>
-          <p class="fr-small">Для автоматического обновления GitHub Actions нужна переменная <code>GDRIVE_NAVDATA_FOLDER_URL</code> с публичной ссылкой на папку. Используй только данные, разрешённые к распространению.</p>
         </div>
       </details>
     </div>
@@ -105,7 +104,7 @@
   import {map} from '@windy/map';
   import {onMount,onDestroy} from 'svelte';
   import config from './pluginConfig';
-  import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot,githubUploadUrl} from './navdb';
+  import {loadDemo,loadOpenSources,airwayCount,parseNamedFixRoute,mapLabelPoints,totalPoints,sourceCount,loadGithubSnapshot} from './navdb';
   import {NAVDATA_GITHUB_REPO} from './navdataConfig';
   import {routeIssues,departureIsoUtc} from './routeGpx';
   import {buildWindyPlannerUrl} from './windyPlannerUrl';
@@ -145,6 +144,9 @@
   let windyPlannerNote='';
   let generatedDepartureUtc='';
 
+  function visiblePointSource(source:string):string {
+    return source === 'GitHub snapshot' || /X[ -]?Plane/i.test(source) ? 'Навигационная база' : source;
+  }
   function saveRoute():void {
     try {localStorage.setItem(SAVED_ROUTE_KEY,routeText);} catch (_err) { /* private mode */ }
   }
@@ -376,7 +378,7 @@
     if(busy)return;
     busy=true;
     try {
-      status='Загружаю навигационную базу GitHub…';
+      status='Проверяю опубликованную навигационную базу…';
       const result=await loadGithubSnapshot(repoUrl);
       githubCycle=result.cycle;
       githubGenerated=result.generated;
@@ -384,18 +386,11 @@
       githubVertices=result.airwayVertices;
       pointTotal=totalPoints();airways=airwayCount();
       runRoute();
-      status=`GitHub: AIRAC ${result.cycle}; ${result.points} точек, ${result.airwayVertices} вершин трасс. Маршрут обновлён.`;
+      status=`AIRAC ${result.cycle}: ${result.points} точек, ${result.airwayVertices} вершин трасс. Маршрут обновлён.`;
     } catch(err) {
-      status='Не удалось обновить GitHub-базу: '+String(err)+'. Проверь manifest, CSV и публичный доступ.';
+      console.warn('Navigation data refresh failed',err);
+      status='Не удалось обновить опубликованную навигационную базу. Проверь доступность источника и попробуй позже.';
     } finally {busy=false;}
-  }
-  function openSyncWorkflow():void {
-    window.open(repoUrl+'/actions/workflows/sync-gdrive-navdata.yml','_blank','noopener,noreferrer');
-    status='В GitHub запусти Actions → sync-gdrive-navdata → Run workflow.';
-  }
-  function openGitHubUpload():void {
-    window.open(githubUploadUrl(repoUrl),'_blank','noopener,noreferrer');
-    status='Загрузи ZIP в navdata-input → Commit changes, затем запусти build-navdata.';
   }
   async function reloadSources():Promise<void> {
     try {
@@ -430,10 +425,12 @@
   .flightplanner .fr-etd-stack {display:flex;flex-direction:column;align-items:center;gap:6px;width:170px;max-width:100%;margin:0 auto 11px;}
   .flightplanner .fr-etd-stack > div {width:100%;min-width:0;text-align:center;}
   .flightplanner .fr-etd-stack label {display:block;text-align:center;font-size:12px;line-height:14px;margin-bottom:2px;}
-  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:34px;min-height:34px;padding:4px 6px;text-align:center;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
-  .flightplanner #fr-etd-date::-webkit-datetime-edit,.flightplanner #fr-etd-time::-webkit-datetime-edit {display:flex;flex:1;justify-content:center;align-items:center;text-align:center;min-width:0;}
-  .flightplanner #fr-etd-date::-webkit-datetime-edit-fields-wrapper,.flightplanner #fr-etd-time::-webkit-datetime-edit-fields-wrapper {display:flex;justify-content:center;min-width:0;}
-  .flightplanner #fr-etd-date::-webkit-date-and-time-value,.flightplanner #fr-etd-time::-webkit-date-and-time-value {text-align:center;}
+  /* Keep the native iOS date/time pickers, but center the visible glyphs vertically. */
+  .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:flex;align-items:center;justify-content:center;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:34px;min-height:34px;padding:0 6px;text-align:center;vertical-align:middle;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:1;color-scheme:dark;}
+  .flightplanner #fr-etd-date::-webkit-datetime-edit,.flightplanner #fr-etd-time::-webkit-datetime-edit {display:flex;flex:1;height:100%;justify-content:center;align-items:center;text-align:center;min-width:0;padding:0;}
+  .flightplanner #fr-etd-date::-webkit-datetime-edit-fields-wrapper,.flightplanner #fr-etd-time::-webkit-datetime-edit-fields-wrapper {display:flex;height:100%;align-items:center;justify-content:center;min-width:0;}
+  .flightplanner #fr-etd-date::-webkit-date-and-time-value,.flightplanner #fr-etd-time::-webkit-date-and-time-value {display:flex;height:100%;align-items:center;justify-content:center;text-align:center;}
+  .flightplanner #fr-etd-date::-webkit-calendar-picker-indicator,.flightplanner #fr-etd-time::-webkit-calendar-picker-indicator {align-self:center;margin-top:0;margin-bottom:0;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
   .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button,.flightplanner .fr-export-actions > a {flex:1 1 160px;text-align:center;}
   .flightplanner .fr-force-handoff,.flightplanner .fr-prepare-url {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}

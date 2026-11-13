@@ -54,7 +54,8 @@ assert(!src.includes("store.set('overlay'"),'Do not modify Windy weather overlay
 assert(!src.includes('buildWindyPlannerRequest'),'Legacy route forwarding helper stays removed');
 assert(main.includes('rows="8"'),'Route textarea doubled to 8 rows');
 assert(src.includes('min-height:172px'),'Route textarea doubled in minimum height');
-assert(src.includes('height:34px;min-height:34px;padding:4px 6px;text-align:center'),'Narrow centered UTC controls');
+assert(src.includes('height:34px;min-height:34px;padding:0 6px;text-align:center;vertical-align:middle'),'Center the native UTC input contents vertically');
+assert(src.includes('::-webkit-datetime-edit-fields-wrapper') && src.includes('display:flex;height:100%;align-items:center;justify-content:center'),'Center Safari date/time text vertically');
 assert(src.includes('font-size:12px;line-height:14px;margin-bottom:2px'),'Compact date/time labels');
 assert(main.includes('>Открыть планировщик</a>'),'Working Windy URL integration intact');
 assert(!src.includes('anchor.href=link.url'), 'Never modify href in the click event');
@@ -68,5 +69,15 @@ assert(main.includes('aria-label="Ссылка Windy"'), 'Generated URL input re
 assert(!main.includes('3-часового слота'), 'Remove slot warning from preview');
 assert(main.includes('>Сформировать план</button>'),'Renamed plan action');
 assert(!src.includes('nativePlannerHandoff')&&!src.includes('experimentBusy')&&!src.includes('experimentNote'),'Experiment implementation removed');
-assert(src.includes('::-webkit-datetime-edit-fields-wrapper'),'Safari date/time controls centered');
+assert(src.includes('::-webkit-calendar-picker-indicator'),'Keep Safari picker indicator aligned');
+assert(main.includes('>Маршрут из OFP</label>'),'Route input renamed');
+assert(!main.includes('Маршрут OFP / ICAO'),'Old OFP label removed');
+assert(settings.includes("'Проверить базу данных'"),'Exactly one database button');
+assert(!settings.includes('Синхронизация Google Drive')&&!settings.includes('Загрузить базу через GitHub'),'Two deprecated database UI buttons removed');
+assert.equal((settings.match(/<button\b/g)||[]).length,1,'Settings only contain one navdata button');
+assert(settings.includes('Проверить базу данных'),'Database-check button retained');
+for(const file of ['earth_fix.dat','earth_nav.dat','earth_awy.dat','navdata.zip','Windy-NAVDATA','https://drive.google.com/drive/folders/14eS_Ir19Uv7FPc2cVZWBR6_yKBvGTu5C'])
+ assert(settings.includes(file),`AIRAC instructions missing: ${file}`);
+assert(!/X-Plane|X.PLANE|\bGitHub\b|Гитхаб|github\.com|navdata-input\/|Custom Data\//.test(settings), 'User-facing navigation settings must not mention technical source systems');
+assert(!src.includes('function openSyncWorkflow()')&&!src.includes('function openGitHubUpload()'),'Unused UI handlers removed');
 console.log('PASS: one URL plan method, no exact-time experiment, GPX, centered compact layout');
