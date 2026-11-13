@@ -1,6 +1,6 @@
 {
   "name": "windy-plugin-flight-route-analyzer",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "type": "module",
   "description": "ICAO route visualizer, named GPX export, native Windy IFR planner URL with UTC, navdata and diagnostics",
   "main": "dist/plugin.min.js",
@@ -8,7 +8,7 @@
     "start": "rollup -w -c",
     "build": "rm -rf dist && mkdir -p dist && SERVE=false rollup -c && cp package.json dist/package.json",
     "typecheck:core": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --strict src/navdb.ts src/xplane.ts src/routeGpx.ts src/gpxDownload.ts src/windyPlannerUrl.ts",
-    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/routeGpx.ts src/gpxDownload.ts src/windyPlannerUrl.ts && node tools/fix-generated-imports.mjs && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_github_snapshot.mjs && node tests/test_route_gpx.mjs && node tests/test_gpx_download.mjs && node tests/test_windy_planner_url.mjs && node tests/test_simplified_ui.mjs && python3 tests/test_navdata_converter.py && npm run check:startup",
+    "test": "tsc --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom --outDir tests/generated src/navdb.ts src/xplane.ts src/routeGpx.ts src/gpxDownload.ts src/windyPlannerUrl.ts && node tools/fix-generated-imports.mjs && node tests/test.mjs && node tests/test_xplane.mjs && node tests/test_github_snapshot.mjs && node tests/test_route_gpx.mjs && node tests/test_gpx_download.mjs && node tests/test_windy_planner_url.mjs && node tests/test_simplified_ui.mjs && node tests/test_release_cleanup.mjs && python3 tests/test_navdata_converter.py && npm run check:startup",
     "test:layout": "node tests/test_simplified_ui.mjs",
     "test:clean-ui": "node tests/test_simplified_ui.mjs",
     "check:imports": "node tools/check-plugin-deps.mjs",

@@ -27,6 +27,10 @@ jobs:
           npm test
           npm run build
           npm run verify:release
+      - name: Confirm Windy version to be published
+        run: |
+          node -e "const p=require('./package.json'); const d=require('./dist/package.json'); const m=require('./dist/plugin.json'); if(p.version!==d.version||p.version!==m.version)process.exit(1); console.log('Publishing Windy plugin version: '+p.version)"
+          echo "Git commit: $GITHUB_SHA"
       - name: Publish private Windy plugin
         run: |
           if [ -z "$WINDY_API_KEY" ]; then
