@@ -27,12 +27,22 @@
       </div>
       <div class="fr-export-actions">
         <button type="button" class="primary" disabled={!gpxXml} on:click={sharePlannerGpx}>Скачать GPX</button>
-        {#if windyPlannerUrl}
-          <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={openWindyPlannerWithCurrentEtd}>Открыть маршрут с UTC в Windy</a>
-        {:else}
-          <button type="button" class="fr-force-handoff" disabled>Открыть маршрут с UTC в Windy</button>
-        {/if}
+        <button type="button" class="fr-prepare-url" disabled={!parsed} on:click={generateWindyPlannerLink}>1. Сформировать ссылку с UTC</button>
       </div>
+      {#if windyPlannerUrl}
+        <div class="fr-url-preview" role="status" aria-live="polite">
+          <p class="fr-url-status">{windyPlannerNote}</p>
+          <label for="fr-windy-generated-url">Готовая ссылка (можно проверить или скопировать)</label>
+          <input id="fr-windy-generated-url" type="text" readonly value={windyPlannerUrl} on:focus={selectWindyUrlInput} />
+          <div class="fr-export-actions">
+            <a class="fr-force-handoff" href={windyPlannerUrl} target="_blank" rel="noopener noreferrer" on:click={checkGeneratedLinkFreshness}>2. Открыть готовую ссылку в Windy</a>
+            <button type="button" on:click={copyWindyPlannerLink}>Скопировать URL</button>
+          </div>
+          {#if windyCopyFeedback}<p class="fr-url-copy-feedback" role="status">{windyCopyFeedback}</p>{/if}
+        </div>
+      {:else if windyPlannerNote}
+        <p class="fr-url-error" role="alert">{windyPlannerNote}</p>
+      {/if}
     </section>
   </div>
 
@@ -139,6 +149,8 @@
   let gpxFeedback='Построй маршрут, чтобы подготовить GPX.';
   let windyPlannerUrl='';
   let windyPlannerNote='';
+  let generatedDepartureUtc='';
+  let windyCopyFeedback='';
   let windyPlannerPartial=false;
 
   function saveRoute():void {
@@ -194,25 +206,15 @@
     if(gpxDownloadHref.startsWith('blob:')) {
       try {URL.revokeObjectURL(gpxDownloadHref);} catch (_err) { /* unsupported WebView */ }
     }
-    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';windyPlannerPartial=false;
+    gpxDownloadHref='';gpxXml='';gpxIsPartial=false;windyPlannerUrl='';windyPlannerNote='';windyPlannerPartial=false;windyCopyFeedback='';generatedDepartureUtc='';
   }
   function prepareGpxDownload():void {
     clearGpxDownload();
     if(!parsed){gpxFeedback='Сначала построй маршрут.';return;}
     try {
       const departureUtc=departureIsoUtc(etdDate,etdTime);
-      // Prepare the real URL handoff independently from the GPX file. An <a>
-      // preserves the actual user click, which is important on iPad Safari.
-      try {
-        const link=buildWindyPlannerUrl(parsed,departureUtc);
-        windyPlannerUrl=link.url;
-        windyPlannerPartial=link.partial;
-        windyPlannerNote=`Ссылка Windy: ${link.from} → ${link.to}, ${link.pointsSent} точек; время URL ${link.urlTimeUtc.replace(/-(\d{2})$/,' $1:00')} UTC.`+
-          (link.roundedTime?' Выбранные минуты округлены до ближайшего 3-часового интервала; точный ETD сохраняется в GPX.':'')+
-          (link.partial?' Маршрут неполный: передан только самый длинный подтверждённый непрерывный участок.':'');
-      } catch(linkError) {
-        windyPlannerNote='Ссылка Windy недоступна: '+String(linkError);
-      }
+      // Generating a Windy URL is an explicit separate step: there must be no
+      // old, cached href if the user changes a date, time, or route.
       const item=prepareGpxPayload(parsed,{departureUtc,routeText});
       gpxXml=item.xml;
       gpxFileName=item.filename;
@@ -297,11 +299,10 @@
     const issues=routeIssues(parsed);
     status=`Маршрут: ${parsed.points.length} точек, ${Math.round(parsed.distanceNm)} NM по подтверждённым отрезкам. ${issues.length?`Предупреждений: ${issues.length}.`:'Разрывов не обнаружено.'}`;
   }
-  function openWindyPlannerWithCurrentEtd(event:MouseEvent):void {
-    // Rebuild the URL synchronously during the actual anchor click. On iPad
-    // the native time picker may not have dispatched "change" yet; never
-    // navigate using a URL cached for the previously selected departure.
-    const anchor=event.currentTarget as HTMLAnchorElement|null;
+  function generateWindyPlannerLink():void {
+    // The native iPad picker can display a new value before Svelte has
+    // propagated bind:value. Always read the actual inputs on this click.
+    windyPlannerUrl='';windyPlannerNote='';windyPlannerPartial=false;windyCopyFeedback='';generatedDepartureUtc='';
     try {
       const dateField=typeof document==='undefined'?null:document.getElementById('fr-etd-date') as HTMLInputElement|null;
       const timeField=typeof document==='undefined'?null:document.getElementById('fr-etd-time') as HTMLInputElement|null;
@@ -309,20 +310,60 @@
       const nextTime=timeField?.value??etdTime;
       const requestedUtc=departureIsoUtc(nextDate,nextTime);
       if(!parsed)throw Error('Сначала построй маршрут');
-      const link=buildWindyPlannerUrl(parsed,requestedUtc);
-      const changed=nextDate!==etdDate||nextTime!==etdTime;
+      // Synchronize ETD and the GPX, THEN create an independent URL preview.
       etdDate=nextDate;etdTime=nextTime;
-      if(changed){saveDeparture();prepareGpxDownload();}
-      // Do not replace the anchor with window.open or asynchronous actions:
-      // preserve the iPad's real user gesture and the exact tested URL path.
-      if(anchor)anchor.href=link.url;
+      saveDeparture();
+      prepareGpxDownload();
+      const link=buildWindyPlannerUrl(parsed,requestedUtc);
       windyPlannerUrl=link.url;
-      status=`Открываю Windy с UTC ${link.urlTimeUtc.replace(/-(\d{2})$/,' $1:00')}. `+
-        (link.roundedTime?'Точное время сохранено в GPX; URL округлён до 3 часов.':'')+
-        (link.partial?' Передан только подтверждённый участок маршрута.':'');
-    }catch(err){
+      generatedDepartureUtc=requestedUtc;
+      windyPlannerPartial=link.partial;
+      const selected=`${nextDate} ${nextTime} UTC`;
+      const urlSlot=`${link.urlTimeUtc.slice(0,10)} ${link.urlTimeUtc.slice(11)}:00 UTC`;
+      windyPlannerNote=`Выбрано: ${selected}. В URL Windy: ${urlSlot}. Точек: ${link.pointsSent} (${link.from} → ${link.to}).`+
+        (link.roundedTime?' Время URL округлено до ближайшего 3-часового слота; в GPX сохранено точное время.':'')+
+        (link.partial?' Маршрут неполный — передан только самый длинный подтверждённый участок.':'');
+      status='Ссылка Windy сформирована с UTC '+urlSlot+'. Проверь значение и нажми «Открыть готовую ссылку». ';
+    }catch(err) {
+      windyPlannerUrl='';generatedDepartureUtc='';
+      windyPlannerNote='Не удалось сформировать ссылку: '+String(err);
+      status=windyPlannerNote;
+    }
+  }
+  function checkGeneratedLinkFreshness(event:MouseEvent):void {
+    // Do not mutate href on click. Only stop navigation if Safari still shows
+    // a different date/time than the values used to prepare this URL.
+    try {
+      const dateField=document.getElementById('fr-etd-date') as HTMLInputElement|null;
+      const timeField=document.getElementById('fr-etd-time') as HTMLInputElement|null;
+      const current=departureIsoUtc(dateField?.value??etdDate,timeField?.value??etdTime);
+      if(!windyPlannerUrl||current!==generatedDepartureUtc)throw Error('Дата или время изменились после формирования ссылки');
+    }catch(err) {
       event.preventDefault();
-      status='Не удалось сформировать ссылку с выбранным UTC: '+String(err);
+      windyPlannerUrl='';generatedDepartureUtc='';
+      windyPlannerNote='Ссылка устарела. Нажми «1. Сформировать ссылку с UTC» ещё раз. '+String(err);
+      status=windyPlannerNote;
+    }
+  }
+  function selectWindyUrlInput(event:FocusEvent):void {
+    (event.currentTarget as HTMLInputElement).select();
+  }
+  async function copyWindyPlannerLink():Promise<void> {
+    if(!windyPlannerUrl)return;
+    try {
+      if(navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(windyPlannerUrl);
+      }else{
+        const input=document.getElementById('fr-windy-generated-url') as HTMLInputElement|null;
+        if(!input)throw Error('Поле ссылки недоступно');
+        input.focus();input.select();
+        if(!document.execCommand('copy'))throw Error('Автоматическое копирование недоступно');
+      }
+      windyCopyFeedback='Ссылка скопирована. Вставь её в адресную строку Safari для проверки.';
+      status=windyCopyFeedback;
+    }catch(err) {
+      windyCopyFeedback='Копирование недоступно. Нажми на поле ссылки и скопируй текст вручную.';
+      status='Не удалось автоматически скопировать URL: '+String(err); 
     }
   }
   function downloadGpxFallback():void {
@@ -417,7 +458,13 @@
   .flightplanner #fr-etd-date,.flightplanner #fr-etd-time {display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:40px;min-height:40px;padding:7px 8px;background:#788491;color:#fff;border:1px solid #b0b9c1;border-radius:7px;font:inherit;font-size:13px;line-height:20px;color-scheme:dark;}
   .flightplanner .fr-buttons,.flightplanner .fr-export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
   .flightplanner .fr-buttons > button,.flightplanner .fr-export-actions > button,.flightplanner .fr-export-actions > a {flex:1 1 160px;text-align:center;}
-  .flightplanner .fr-force-handoff {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}
+  .flightplanner .fr-force-handoff,.flightplanner .fr-prepare-url {display:flex;align-items:center;justify-content:center;box-sizing:border-box;border-radius:8px;min-height:44px;padding:9px 12px;background:#27648c;color:#fff;border:1px solid #1c567c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;}
+  .flightplanner .fr-prepare-url:disabled {opacity:.55;cursor:not-allowed;}
+  .flightplanner .fr-url-preview {margin-top:12px;padding:10px;border:1px solid #a8bccb;border-radius:8px;background:#465563;color:#fff;min-width:0;}
+  .flightplanner .fr-url-preview .fr-url-status {margin:0 0 9px;line-height:1.45;color:#fff;}
+  .flightplanner #fr-windy-generated-url {box-sizing:border-box;width:100%;height:40px;padding:7px 9px;border-radius:6px;border:1px solid #b0b9c1;font-size:12px;background:#fff;color:#1b3445;}
+  .flightplanner .fr-url-error {margin:10px 0 0;color:#ffe0ae;font-size:12px;}
+  .flightplanner .fr-url-copy-feedback {margin:8px 0 0;font-size:12px;color:#d8ecff;}
   .flightplanner .fr-feedback {font-size:12px;color:#e7f0f8;margin:11px 0 0;line-height:1.5;}
   .flightplanner .fr-feedback.fr-warning {color:#ffe0ae;}
   .flightplanner .fr-settings {border:1px solid #b7c0c7;border-radius:12px;margin:12px 0;overflow:hidden;background:#f7f9fb;}
